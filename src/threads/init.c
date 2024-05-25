@@ -72,12 +72,16 @@ static void locate_block_device (enum block_type, const char *name);
 
 int pintos_init (void) NO_RETURN;
 
+// When pintos_init() starts, the system is in a pretty raw state.
+// We're in 32-bit protected mode with paging enabled,
+// but hardly anything else is ready.
 /** Pintos main entry point. */
 int
 pintos_init (void)
 {
   char **argv;
 
+  // clears out the kernel's "BSS", which is the traditional name for a segment that should be initialized to all zeros. In most C implementations, whenever you declare a variable outside a function without providing an initializer, that variable goes into the BSS. Because it's all zeros, the BSS isn't stored in the image that the loader brought into memory. We just use memset() to zero it out.
   /* Clear BSS. */  
   bss_init ();
 
@@ -85,9 +89,14 @@ pintos_init (void)
   argv = read_command_line ();
   argv = parse_options (argv);
 
+  // initializes the thread system
+  // It is called so early in initialization because a valid thread structure
+  // is a prerequisite for acquiring a lock,
+  // and lock acquisition in turn is important to other Pintos subsystems.
   /* Initialize ourselves as a thread so we can use locks,
      then enable console locking. */
   thread_init ();
+  // initialize the console and print a startup message to the console
   console_init ();  
 
   /* Greet user. */
@@ -95,8 +104,11 @@ pintos_init (void)
           init_ram_pages * PGSIZE / 1024);
 
   /* Initialize memory system. */
+  // sets up the kernel page allocator, which doles out memory one or more pages at a time (see section Page Allocator)
   palloc_init (user_page_limit);
+  // sets up the allocator that handles allocations of arbitrary-size blocks of memory (see section Block Allocator)
   malloc_init ();
+  // sets up a page table for the kernel (see section Page Table)
   paging_init ();
 
   /* Segmentation. */
@@ -106,22 +118,34 @@ pintos_init (void)
 #endif
 
   /* Initialize interrupt handlers. */
+  // sets up the CPU's interrupt descriptor table (IDT) to ready it for interrupt handling (see section Interrupt Handling)
   intr_init ();
+  // prepare for handling timer interrupts and keyboard interrupts, respectively
   timer_init ();
   kbd_init ();
+  // sets up to merge serial and keyboard input into one stream
   input_init ();
 #ifdef USERPROG
+  // prepare to handle interrupts caused by user programs using exception_init()
+  // and syscall_init()
   exception_init ();
   syscall_init ();
 #endif
 
+  // Now that interrupts are set up, we can start the scheduler with
+  // thread_start(), which creates the idle thread and enables interrupts.
   /* Start thread scheduler and enable interrupts. */
   thread_start ();
+  // With interrupts enabled, interrupt-driven serial port I/O becomes possible,
+  // so we use serial_init_queue() to switch to that mode
   serial_init_queue ();
+  // calibrates(校准) the timer for accurate short delays
   timer_calibrate ();
 
 #ifdef FILESYS
   /* Initialize file system. */
+  // initialize the IDE disks with ide_init(),
+  // then the file system with filesys_init()
   ide_init ();
   locate_block_devices ();
   filesys_init (format_filesys);
@@ -131,6 +155,9 @@ pintos_init (void)
   
   if (*argv != NULL) {
     /* Run actions specified on kernel command line. */
+    // parses and executes actions specified on the kernel command line,
+    // such as run to run a test (in project 1) or a user program
+    // (in later projects)
     run_actions (argv);
   } else {
     // TODO: no command line passed to kernel. Run interactively 
@@ -141,6 +168,7 @@ pintos_init (void)
   thread_exit ();
 }
 
+// 将ELF加载到内存运行时可以知道.bss的起始地址和结束地址,直接将这段地址初始化为0即可
 /** Clear the "BSS", a segment that should be initialized to
    zeros.  It isn't actually stored on disk or zeroed by the
    kernel loader, so we have to zero it ourselves.
@@ -150,6 +178,7 @@ pintos_init (void)
 static void
 bss_init (void) 
 {
+  // 为什么是char
   extern char _start_bss, _end_bss;
   memset (&_start_bss, 0, &_end_bss - &_start_bss);
 }

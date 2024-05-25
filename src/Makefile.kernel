@@ -1,21 +1,45 @@
 # -*- makefile -*-
 
+# 在build目录下创建所有DIRS文件夹
+# 把Makefile.build复制到当前Makefile所在文件夹的build/目录下
+# 根据 all grade check: $(DIRS) build/Makefile
+#   	  cd build && $(MAKE) $@
+# cd build && make all(如果直接执行make,all:是第一个目标所以会选择all)
+# 也就是会执行Makefile.build中的all目标
+
+
 all:
 
+# threads/Make.vars
+# kernel.bin: DEFINES =
+# KERNEL_SUBDIRS = threads devices lib lib/kernel $(TEST_SUBDIRS)
+# TEST_SUBDIRS = tests/threads
+# GRADING_FILE = $(SRCDIR)/tests/threads/Grading
+# SIMULATOR = --bochs
 include Make.vars
 
+# 构造并排序一个目录列表，目录名来源于KERNEL_SUBDIRS、TEST_SUBDIRS变量
+# 以及lib/user，并在每个目录名前加上build/前缀。
 DIRS = $(sort $(addprefix build/,$(KERNEL_SUBDIRS) $(TEST_SUBDIRS) lib/user))
 
+# $@会被替换成规则中的目标
 all grade check: $(DIRS) build/Makefile
 	cd build && $(MAKE) $@
+
 $(DIRS):
 	mkdir -p $@
+
+# 若build/Makefile不存在或../Makefile.build有更新，
+# 则将../Makefile.build复制为build/Makefil
 build/Makefile: ../Makefile.build
 	cp $< $@
 
+# 定义了一个泛型规则，适用于以build/开头的任意目标。
+# 该规则依赖于$(DIRS)和build/Makefile，且使用了模式替换规则$*来表示对应的目标名称
 build/%: $(DIRS) build/Makefile
 	cd build && $(MAKE) $*
 
+# 比如 make image 或者 make qemu，应该就是执行 cd build && make build/kernel.img
 image: build/kernel.img
 
 qemu: build/qemu

@@ -53,7 +53,7 @@ read_mbr:
 	mov $0x2000, %ax		# Use 0x20000 for buffer.
 	mov %ax, %es
 	call read_sector
-	jc no_such_drive
+	jc no_such_drive        # JC: branches only if CF(carry flags) is set
 
 	# Print hd[a-z].
 	call puts

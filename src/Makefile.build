@@ -1,10 +1,17 @@
 # -*- makefile -*-
 
+# 比如在threads/build中，SRCDIR就是src/
 SRCDIR = ../..
 
 all: kernel.bin loader.bin
 
 include ../../Make.config
+# threads/Make.vars
+# kernel.bin: DEFINES =
+# KERNEL_SUBDIRS = threads devices lib lib/kernel $(TEST_SUBDIRS)
+# TEST_SUBDIRS = tests/threads
+# GRADING_FILE = $(SRCDIR)/tests/threads/Grading
+# SIMULATOR = --bochs
 include ../Make.vars
 include ../../tests/Make.tests
 
@@ -72,7 +79,11 @@ filesys_SRC += filesys/directory.c	# Directories.
 filesys_SRC += filesys/inode.c		# File headers.
 filesys_SRC += filesys/fsutil.c		# Utilities.
 
+# 遍历在变量KERNEL_SUBDIRS中指定的目录列表。
+# 对于每个目录，它将另一个变量的值（通过连接目录名称和_SRC得到，
+# 就是threads_SRC，devices_SRC，userprog_SRC这些）追加到SOURCES列表中。
 SOURCES = $(foreach dir,$(KERNEL_SUBDIRS),$($(dir)_SRC))
+# 将所有 .S, .c 对应为 .o
 OBJECTS = $(patsubst %.c,%.o,$(patsubst %.S,%.o,$(SOURCES)))
 DEPENDS = $(patsubst %.o,%.d,$(OBJECTS))
 
@@ -81,7 +92,22 @@ IMAGE = kernel.img
 QEMUOPTS = -serial mon:stdio -gdb tcp::$(GDBPORT)
 QEMUOPTS += $(shell if $(QEMU) -nographic -help | grep -q '^-D '; then echo '-D qemu.log'; fi)
 
+print-sources:
+	echo $(SOURCES)
+
+# -msoft-float: 指定编译器生成不使用硬件浮点运算指令的代码。相反，它会生成使用软件来模拟浮点运算的代码。
+# 这在某些特定的情况下是非常有用的，尤其是对于没有硬件浮点单元（FPU）的处理器。
+# CFLAGS = -m32 -g -msoft-float -O0
+
+# -nostdinc: 指示编译器在查找头文件时不使用标准系统头文件目录
+# CPPFLAGS = -nostdinc -I$(SRCDIR) -I$(SRCDIR)/lib
+
+# -Wa: 将后面的选项传递给汇编器
+# --gstabs: 告诉汇编器生成 STABS 格式的调试信息。STABS 是一种调试信息格式，常用于调试器（如 GDB）来帮助开发者调试代码。
+# ASFLAGS = -Wa,--gstabs,--32
+
 %.o: %.c
+	printf "%s\n" "$<"
 	$(CC) -c $< -o $@ $(CFLAGS) $(CPPFLAGS) $(WARNINGS) $(DEFINES) $(DEPS)
 
 %.o: %.S
@@ -91,19 +117,31 @@ threads/kernel.lds.s: CPPFLAGS += -P
 threads/kernel.lds.s: threads/kernel.lds.S threads/loader.h
 
 kernel.o: threads/kernel.lds.s $(OBJECTS) 
+    # LDOPTIONS will be applied directly with 'ld' while LDFLAGS will be applied with 'gcc'.
+    # LDOPTIONS = -melf_i386
+    # -T FILE, --script FILE      Read linker script
 	$(LD) $(LDOPTIONS) -T $< -o $@ $(OBJECTS)
+	# -S, --source             Intermix source code with disassembly
 	$(OBJDUMP) -S $@ > kernel.asm
+	# -n, --numeric-sort     Sort symbols numerically by address
 	$(NM) -n $@ > kernel.sym
 
 kernel.bin: kernel.o
+    # -R --remove-section <name>       Remove section <name> from the output
 	$(OBJCOPY) -R .note -R .comment -S $< $@
 
 threads/loader.o: threads/loader.S
 	$(CC) -c $< -o $@ $(ASFLAGS) $(CPPFLAGS) $(DEFINES)
 
 loader.bin: threads/loader.o
+    # 使程序的段不进行页面对齐。这意味着所有段都按原样链接，没有额外的填充或对齐。对于小型引导加载程序或内核镜像，这个选项通常用来减少文件大小和内存占用。
+    # -e 指定程序的入口点地址为0。入口点是程序开始执行的地方。在实际引导加载程序中，这个地址通常是0x7c00，但这里指定为0，可能是因为实际的入口点会在引导加载程序代码中被重定位或通过其他方式处理。
+    # -Ttext 0x7c00 指定.text段的装载地址为0x7c00（看loader.asm中地址）。
+    # 在x86体系结构的启动过程中，BIOS通常将主引导记录（MBR）加载到内存的0x7c00地址处，所以引导加载程序也需要在这个地址开始执行。
 	$(LD) $(LDOPTIONS) -N -e 0 -Ttext 0x7c00 -o loader.out $<
 	$(OBJDUMP) -S loader.out > loader.asm
+	# -j .text: 这个选项指定只复制 .text 段（section）。-j 是 --only-section 的缩写形式。
+	# loader.out 是输入文件, loader.bin 是输出文件
 	$(OBJCOPY) -S -O binary -j .text loader.out $@
 	rm loader.out
 

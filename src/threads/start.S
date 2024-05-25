@@ -138,6 +138,19 @@ start:
 
 	data32 addr32 lgdt gdtdesc - LOADER_PHYS_BASE - 0x20000
 
+# CR0寄存器是x86体系结构中的一个控制寄存器（Control Register），
+# 它在保护模式下控制着处理器的操作模式和状态。
+# CR0寄存器中包含多个标志位，这些标志位可以开启或关闭处理器的一些重要特性。
+# 一些关键的CR0标志位包括：
+# PE（Protection Enable）位：当设置为1时，处理器进入保护模式；设置为0时，处理器处于实模式。
+# MP（Monitor co-Processor）位：控制位于WAIT指令的处理方式。
+# EM（Emulation）位：用于禁用x87浮点单元，当设置为1时，所有x87浮点指令会触发一个异常，允许系统模拟FP运算。
+# TS（Task Switched）位：用于决定是否需要保存浮点状态，每次任务切换时可能会被设置。
+# ET（Extension Type）位：指示浮点处理器的类型，目前通常设置为1。
+# NE（Numeric Error）位：用于启用x87浮点处理器的内部异常处理。
+# WP（Write Protect）位：当设置为1时，会阻止超级用户级别的代码向只读页面写入。
+# AM（Alignment Mask）位：用于自动检查用户程序的内存对齐。
+
 # Then we turn on the following bits in CR0:
 #    PE (Protect Enable): this turns on protected mode.
 #    PG (Paging): turns on paging.
