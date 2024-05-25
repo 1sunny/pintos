@@ -160,7 +160,40 @@ pintos_init (void)
     // (in later projects)
     run_actions (argv);
   } else {
-    // TODO: no command line passed to kernel. Run interactively 
+    // TODO: no command line passed to kernel. Run interactively
+    const int cmd_maxlen = 100;
+    char cmd_buf[cmd_maxlen];
+    while (true) {
+      printf("PKUOS>");
+      memset(cmd_buf, 0, cmd_maxlen);
+      size_t cmd_index = 0;
+      while (true) {
+        char ch = input_getc();
+        // printf("char int: %d\n", ch);
+        if (ch == 13) {
+          printf("\n");
+          break;
+        }
+        // TODO backspace
+        if (cmd_index >= cmd_maxlen) {
+          continue;
+        }
+        // As the user types in a printable character, display the character.
+        if (ch > 31) {
+          printf("%c", ch);
+        }
+        cmd_buf[cmd_index++] = ch;
+      }
+      printf("cmd_buf: %s, len: %d\n", cmd_buf, strnlen(cmd_buf, cmd_maxlen));
+      if (strcmp(cmd_buf, "whoami") == 0) {
+        printf("1sunny\n");
+      } else if (strcmp(cmd_buf, "exit") == 0) {
+        // If the user input is exit, the monitor will quit to allow the kernel to finish.
+        break;
+      } else {
+        printf("invalid command\n");
+      }
+    }
   }
 
   /* Finish up. */
@@ -226,11 +259,13 @@ paging_init (void)
 static char **
 read_command_line (void) 
 {
+  // 每个参数至少需要1个字符和一个空格，所以/2
   static char *argv[LOADER_ARGS_LEN / 2 + 1];
   char *p, *end;
   int argc;
   int i;
 
+  // 通过虚拟地址读取 argc
   argc = *(uint32_t *) ptov (LOADER_ARG_CNT);
   p = ptov (LOADER_ARGS);
   end = p + LOADER_ARGS_LEN;
@@ -239,6 +274,7 @@ read_command_line (void)
       if (p >= end)
         PANIC ("command line arguments overflow");
 
+      // \0在内存中
       argv[i] = p;
       p += strnlen (p, end - p) + 1;
     }

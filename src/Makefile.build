@@ -116,7 +116,7 @@ print-sources:
 threads/kernel.lds.s: CPPFLAGS += -P
 threads/kernel.lds.s: threads/kernel.lds.S threads/loader.h
 
-kernel.o: threads/kernel.lds.s $(OBJECTS) 
+kernel.o: threads/kernel.lds.s $(OBJECTS)
     # LDOPTIONS will be applied directly with 'ld' while LDFLAGS will be applied with 'gcc'.
     # LDOPTIONS = -melf_i386
     # -T FILE, --script FILE      Read linker script
