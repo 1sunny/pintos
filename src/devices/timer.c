@@ -97,6 +97,8 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
+  // A tight loop that calls thread_yield() is one form of busy waiting.
+
   // Although a working implementation is provided, it "busy waits,"
   // it spins in a loop checking the current time and calling thread_yield()
   // until enough time has gone by.
@@ -105,8 +107,20 @@ timer_sleep (int64_t ticks)
   // the thread need not wake up after exactly ticks.
   // Just put it on the ready queue after they have waited
   // for the right amount of time.
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+
+// 原始代码:
+//  while (timer_elapsed (start) < ticks)
+//     thread_yield ();
+  if (ticks <= 0) {
+    return;
+  }
+  thread_current ()->sleep_until_ticks = start + ticks;
+  struct semaphore sema;
+  thread_current ()->sema = &sema;
+  sema_init (&sema, 0);
+  sema_down(&sema);
+  thread_current ()->sleep_until_ticks = -1;
+  thread_current ()->sema = NULL;
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -178,13 +192,40 @@ timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
+void thread_sleep_check (struct thread *t, void *aux UNUSED) {
+  if (t->sema != NULL && t->sleep_until_ticks <= ticks) {
+    // Unlike most synchronization primitives,
+    // sema_up() may be called inside an external interrupt handler
+    // 因为sema_up不会sleep
+    sema_up(t->sema);
+    t->sleep_until_ticks = -1;
+    t->sema = NULL;
+  }
+}
+
 /** Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  // 这里中断应该由CPU关了的吧?
   ticks++;
+// -----
+// 这里放在中间感觉比较好,这样如果sleeping thread满足条件,thread_tick时就有可能被唤醒
+// In addition, when modifying some global variable,
+// e.g., a global list, you will need to use some synchronization primitive
+// as well to ensure it is not modified or read concurrently
+// (e.g., a timer interrupt occurs during the modification and
+// we switch to run another thread).
+// 但是interrupt handler不能sleep啊, 怎么同步???
+// 关中断的时候不需要同步吧,自然就是同步的
+  thread_foreach(thread_sleep_check, NULL);
+// -----
   thread_tick ();
+  // Hint: You need to decide where to check whether
+  // the elapsed time exceeded the sleep time.
+  // 遍历一下线程列表,进行唤醒?
+  // 应该是要给struct thread加属性, 这会影响某些偏移吗, 加在最后应该不会有影响吧
 }
 
 /** Returns true if LOOPS iterations waits for more than one timer

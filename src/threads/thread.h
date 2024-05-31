@@ -4,6 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
+
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -123,6 +125,8 @@ struct thread
     // Stack overflow tends to change this value, triggering the assertion.
     /* Owned by thread.c. */
     unsigned magic;                     /**< Detects stack overflow. */
+    int64_t sleep_until_ticks;
+    struct semaphore *sema;
   };
 
 /** If false (default), use round-robin scheduler.
