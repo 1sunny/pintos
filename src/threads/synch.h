@@ -49,3 +49,16 @@ void cond_broadcast (struct condition *, struct lock *);
 #define barrier() asm volatile ("" : : : "memory")
 
 #endif /**< threads/synch.h */
+
+// volatile int a = 0;
+// volatile int b = 0;
+//
+// void update_variables() {
+//     a = 1;
+//     barrier();
+//     b = 2;
+// }
+// In this code, the barrier() ensures that the write to a happens
+// strictly before the write to b.
+// Without the barrier, the compiler might reorder these writes
+// if it thinks it can improve performance by doing so.

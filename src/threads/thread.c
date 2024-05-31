@@ -71,6 +71,16 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+// Called by pintos_init() to initialize the thread system.
+// Its main purpose is to [[[ create a struct thread for Pintos's initial thread ]]].
+// This is possible because the [[[ Pintos loader puts the initial thread's stack at the top of a page ]]],
+// in the [[ same position as any other Pintos thread ]].
+
+// Before thread_init() runs, thread_current() will fail
+// because the running thread's magic value is incorrect.
+// Lots of functions call thread_current() directly or indirectly,
+// including lock_acquire() for locking a lock,
+// so thread_init() is called early in Pintos initialization.
 /** Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -87,12 +97,17 @@ static tid_t allocate_tid (void);
 void
 thread_init (void) 
 {
+  // 保证中断是关闭的
   ASSERT (intr_get_level () == INTR_OFF);
 
+  // tid_lock: Lock used by allocate_tid().
   lock_init (&tid_lock);
   list_init (&ready_list);
+  // List of all processes.  Processes are added to this list
+  // when they are first scheduled and removed when they exit.
   list_init (&all_list);
 
+  // Returns the running thread pointer: struct thread *
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -100,6 +115,8 @@ thread_init (void)
   initial_thread->tid = allocate_tid ();
 }
 
+// Called by pintos_init() to start the scheduler.
+// Creates the idle thread(空闲线程), that is, the thread that is scheduled when no other thread is ready.
 /** Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
 void
@@ -110,15 +127,20 @@ thread_start (void)
   sema_init (&idle_started, 0);
   thread_create ("idle", PRI_MIN, idle, &idle_started);
 
-  /* Start preemptive thread scheduling. */
+  // Then enables interrupts, which as a side effect enables the scheduler
+  // because the [[[ scheduler runs on return from the timer interrupt ]]],
+  // 调度程序会在定时器中断返回时运行
+  // using intr_yield_on_return().
+  /* Start preemptive thread scheduling(打开中断, 启动抢占式线程调度). */
   intr_enable ();
 
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down (&idle_started);
 }
 
+// keeps track of thread statistics and triggers the scheduler when a time slice expires.
 /** Called by the timer interrupt handler at each timer tick.
-   Thus, this function runs in an external interrupt context. */
+   Thus, [[[ this function runs in an external interrupt context. ??? ]]] */
 void
 thread_tick (void) 
 {
@@ -134,11 +156,14 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  // 执行抢占
+  // TIME_SLICE: # of timer ticks to give each thread
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
 }
 
+// Called during Pintos shutdown to print thread statistics.
 /** Prints thread statistics. */
 void
 thread_print_stats (void) 
@@ -149,12 +174,12 @@ thread_print_stats (void)
 
 /** Creates a new kernel thread named NAME with the given initial
    PRIORITY, which executes FUNCTION passing AUX as the argument,
-   and adds it to the ready queue.  Returns the thread identifier
+   and [[[ adds it to the ready queue. ]]]  [[[ Returns the thread identifier ]]]
    for the new thread, or TID_ERROR if creation fails.
 
-   If thread_start() has been called, then the new thread may be
+   If thread_start() has been called, then [[[ the new thread may be
    scheduled before thread_create() returns.  It could even exit
-   before thread_create() returns.  Contrariwise, the original
+   before thread_create() returns. ]]]  Contrariwise, the original
    thread may run for any amount of time before the new thread is
    scheduled.  Use a semaphore or some other form of
    synchronization if you need to ensure ordering.
@@ -164,10 +189,12 @@ thread_print_stats (void)
    Priority scheduling is the goal of Problem 1-3. */
 tid_t
 thread_create (const char *name, int priority,
-               thread_func *function, void *aux) 
+               thread_func *function, void *aux) // auxiliary: 表示辅助的或额外的参数
 {
+// 这里还没关中断, init_thread中关的
   struct thread *t;
   struct kernel_thread_frame *kf;
+  // Stack frame for switch_entry()
   struct switch_entry_frame *ef;
   struct switch_threads_frame *sf;
   tid_t tid;
@@ -175,7 +202,7 @@ thread_create (const char *name, int priority,
   ASSERT (function != NULL);
 
   /* Allocate thread. */
-  t = palloc_get_page (PAL_ZERO);
+  t = palloc_get_page (PAL_ZERO); // PAL_ZERO : Zero page contents
   if (t == NULL)
     return TID_ERROR;
 
@@ -183,19 +210,33 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
+// When thread_create() creates a new thread,
+// it goes through a fair amount of trouble to get it started properly.
+// In particular, the new thread hasn't started running yet,
+// so there's no way for it to be running inside switch_threads()
+// [[[ as the scheduler expects. ???
+// 为什么scheduler expects, 就是说线程切换必须是线程自己运行到schedule函数??? ]]]
+// To solve the problem, thread_create() creates some _fake stack frames_
+// in the new thread's stack:
+
+  // struct kernel_thread_frame *kf;
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
-  kf->eip = NULL;
-  kf->function = function;
-  kf->aux = aux;
+  kf->eip = NULL;          // Return address, 没有返回地址，如果这个函数结束了, 会调用thread_exit
+  kf->function = function; // Function to call, 相当于是上一个栈帧里传递的第一个参数
+  kf->aux = aux;           // Function arg    , 相当于是上一个栈帧里传递的第二个参数
 
+  // struct switch_entry_frame *ef;
   /* Stack frame for switch_entry(). */
   ef = alloc_frame (t, sizeof *ef);
   ef->eip = (void (*) (void)) kernel_thread;
 
+  // struct switch_threads_frame *sf;
   /* Stack frame for switch_threads(). */
   sf = alloc_frame (t, sizeof *sf);
-  sf->eip = switch_entry;
+  // point eip to switch_entry(), indicating it to be the function that called switch_entry().
+  // 把eip设置为switch_entry, 表示是由switch_entry调用的switch_threads
+  sf->eip = switch_entry;  // Return address
   sf->ebp = 0;
 
   /* Add to run queue. */
@@ -217,6 +258,7 @@ thread_block (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   thread_current ()->status = THREAD_BLOCKED;
+  // 主动调用thread_block
   schedule ();
 }
 
@@ -235,6 +277,7 @@ thread_unblock (struct thread *t)
 
   ASSERT (is_thread (t));
 
+  // 在关中断的情况下进行, 防止当前函数被打断?
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
@@ -258,8 +301,8 @@ thread_current (void)
   struct thread *t = running_thread ();
   
   /* Make sure T is really a thread.
-     If either of these assertions fire, then your thread may
-     have overflowed its stack.  Each thread has less than 4 kB
+     [[[[[ If either of these assertions fire, then your thread may
+     have overflowed its stack. ]]]]]  Each thread has less than 4 kB
      of stack, so a few big automatic arrays or moderate
      recursion can cause stack overflow. */
   ASSERT (is_thread (t));
@@ -305,7 +348,7 @@ thread_yield (void)
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
-
+  // 需要关中断
   old_level = intr_disable ();
   if (cur != idle_thread) 
     list_push_back (&ready_list, &cur->elem);
@@ -414,6 +457,7 @@ idle (void *idle_started_ UNUSED)
     }
 }
 
+// 开中断, 运行thread_create传递的函数, 函数返回后调用thread_exit
 /** Function used as the basis for a kernel thread. */
 static void
 kernel_thread (thread_func *function, void *aux) 
@@ -424,7 +468,10 @@ kernel_thread (thread_func *function, void *aux)
   function (aux);       /**< Execute the thread function. */
   thread_exit ();       /**< If function() returns, kill the thread. */
 }
-
+
+// 为什么可以直接通过返回page开始的地址就当作struct thread *
+// This is possible because the Pintos loader puts the initial thread's stack at the top of a page,
+// in the same position as any other Pintos thread.
 /** Returns the running thread. */
 struct thread *
 running_thread (void) 
@@ -460,6 +507,7 @@ init_thread (struct thread *t, const char *name, int priority)
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
+  // 把sp设置为页的末尾
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
@@ -484,8 +532,8 @@ alloc_frame (struct thread *t, size_t size)
 
 /** Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
-   empty.  (If the running thread can continue running, then it
-   will be in the run queue.)  If the run queue is empty, return
+   empty.  ([[[ If the running thread can continue running, then it
+   will be in the run queue. ]]])  If the run queue is empty, return
    idle_thread. */
 static struct thread *
 next_thread_to_run (void) 
@@ -530,9 +578,14 @@ thread_schedule_tail (struct thread *prev)
   process_activate ();
 #endif
 
+  // thread_exit中设置THREAD_DYING, 然后主动调用schedule
+  // initial_thread: Initial thread, the thread running init.c:main()
+  // [[[[[ These couldn't be freed prior to the thread switch
+  // because the switch needed to use it. ]]]]]
+  // 就是说thread_exit时不能palloc_free_page, 因为switch needed to use it(pku文档)...
   /* If the thread we switched from is dying, destroy its struct
-     thread.  This must happen late so that thread_exit() doesn't
-     pull out the rug under itself.  (We don't free
+     thread. [[[ This must happen late so that thread_exit() doesn't
+     pull out the rug under itself. ??? ]]]  (We don't free
      initial_thread because its memory was not obtained via
      palloc().) */
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
@@ -542,6 +595,14 @@ thread_schedule_tail (struct thread *prev)
     }
 }
 
+// called only by the three public thread functions that need to switch threads:
+//   thread_block()
+//   thread_exit()
+//   thread_yield()
+
+// [[[[[ Before any of these functions call schedule(),
+// they disable interrupts (or ensure that they are already disabled)
+// and then change the running thread's state to something other than running. ]]]]]
 /** Schedules a new process.  At entry, interrupts must be off and
    the running process's state must have been changed from
    running to some other state.  This function finds another
@@ -556,10 +617,18 @@ schedule (void)
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
 
+  // 需要关中断才能进行线程调度,TODO 为什么调度的时候不能处理中断?
+  // 在调度的时候timer到了,又应该进行调度...
   ASSERT (intr_get_level () == INTR_OFF);
+  // status: Thread state
   ASSERT (cur->status != THREAD_RUNNING);
+  // Returns true if T appears to point to a valid thread
   ASSERT (is_thread (next));
 
+  // [[[[[ The thread we switched to [[[[[ was also running ]]]]] inside switch_threads(),
+  // as are all the threads not currently running, ]]]]]
+  // so the new thread now returns out of switch_threads(),
+  // returning the previously running thread.
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);

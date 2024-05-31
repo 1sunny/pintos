@@ -15,8 +15,8 @@ struct switch_threads_frame
   };
 
 /** Switches from CUR, which must be the running thread, to NEXT,
-   which must also be running switch_threads(), returning CUR in
-   NEXT's context. */
+   which must also be running switch_threads(), [[[[[[[[[[ returning CUR in
+   NEXT's context. ]]]]]]]]]] */
 struct thread *switch_threads (struct thread *cur, struct thread *next);
 
 /** Stack frame for switch_entry(). */
@@ -32,6 +32,11 @@ void switch_entry (void);
 void switch_thunk (void);
 #endif
 
+// struct thread *switch_threads (struct thread *cur, struct thread *next);
+// SWITCH_CUR = edi, esi, ebp, ebx, return address, cur, next
+//             ^
+//            esp
+// 可以看 struct switch_threads_frame
 /** Offsets used by switch.S. */
 #define SWITCH_CUR      20
 #define SWITCH_NEXT     24

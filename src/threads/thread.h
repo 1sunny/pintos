@@ -8,12 +8,22 @@
 /** States in a thread's life cycle. */
 enum thread_status
   {
+    // thread_current() returns the running thread
     THREAD_RUNNING,     /**< Running thread. */
+    // could be selected to run the next time the scheduler is invoked.
+    // Ready threads are kept in a doubly linked list called ready_list.
     THREAD_READY,       /**< Not running but ready to run. */
+    // waiting for something,
+    // e.g. a lock to become available, an interrupt to be invoked. */
+    // won't be scheduled again until it transitions to the THREAD_READY
+    // state with a call to thread_unblock()
     THREAD_BLOCKED,     /**< Waiting for an event to trigger. */
+    // will be destroyed by the scheduler after switching to the next thread
     THREAD_DYING        /**< About to be destroyed. */
   };
 
+// each new thread receives the numerically next higher tid,
+// starting from 1 for the initial process.
 /** Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -86,6 +96,18 @@ struct thread
     tid_t tid;                          /**< Thread identifier. */
     enum thread_status status;          /**< Thread state. */
     char name[16];                      /**< Name (for debugging purposes). */
+// Every thread has its own stack to keep track of its state.
+// When the thread is running, the CPU's stack pointer register tracks the top of the stack
+// and this member is unused.
+// But when the CPU switches to another thread, this member saves the thread's stack pointer.
+// No other members are needed to save the thread's registers,
+// because the other registers that must be saved are saved on the stack(TODO 什么stack).
+// TODO 为什么sp不能保存在栈上?
+// When an interrupt occurs, whether in the kernel or a user program,
+// an struct intr_frame is pushed onto the stack.
+// When the interrupt occurs in a user program,
+// the struct intr_frame is always at the very top of the page.
+// See section Interrupt Handling, for more information.
     uint8_t *stack;                     /**< Saved stack pointer. */
     int priority;                       /**< Priority. */
     struct list_elem allelem;           /**< List element for all threads list. */
@@ -98,6 +120,7 @@ struct thread
     uint32_t *pagedir;                  /**< Page directory. */
 #endif
 
+    // Stack overflow tends to change this value, triggering the assertion.
     /* Owned by thread.c. */
     unsigned magic;                     /**< Detects stack overflow. */
   };

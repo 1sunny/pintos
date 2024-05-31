@@ -32,6 +32,10 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+// Semaphores are internally built out of disabling interrupt
+// (see section Disabling Interrupts) and
+// thread blocking and unblocking (thread_block() and thread_unblock()).
+
 /** Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -50,26 +54,46 @@ sema_init (struct semaphore *sema, unsigned value)
   list_init (&sema->waiters);
 }
 
-/** Down or "P" operation on a semaphore.  Waits for SEMA's value
-   to become positive and then atomically decrements it.
+// TODO 注释里的interrupt handler指外中断handler还是所有handler???
+// 这个函数可能会sleep, 所以不能在interrupt handler中被调用(原因是死锁那个原因吗??intr_register_ext上的注释)
 
-   This function may sleep, so it must not be called within an
-   interrupt handler.  This function may be called with
+// 调用该函数前可能会禁用中断, 但如果休眠, 下一个被调度的thread可能会重新开启中断.
+/** Down or "P" operation on a semaphore. [[[ Waits for SEMA's value
+   to become positive and then atomically decrements it. ]]]
+
+   This function [[[ may sleep ]]], so it must not be called within an
+   interrupt handler.  This function [[[ may be called with
    interrupts disabled, but if it sleeps then the next scheduled
-   thread will probably turn interrupts back on. */
+   thread will probably turn interrupts back on. ]]] */
 void
 sema_down (struct semaphore *sema) 
 {
   enum intr_level old_level;
 
   ASSERT (sema != NULL);
+  // 没在处理外中断
   ASSERT (!intr_context ());
 
+  // TODO 为什么要关中断
   old_level = intr_disable ();
-  while (sema->value == 0) 
+  // 相当于这个线程不会被时间片打断, 这个函数也不会被interrupt handler调用
+  // TODO 但如果这个线程触发内中断, 并且内中断如果也需要访问这个sema,那不是会...
+  // 除非内中断不会访问这个sema
+  // In the Pintos projects,
+  // the only class of problem best solved by disabling interrupts is
+  // coordinating data _shared between a kernel thread
+  // and an interrupt handler_.
+  //    Because interrupt handlers can't sleep, they can't acquire locks.
+  //    This means that data shared between kernel threads
+  //    and an interrupt handler must be protected within a kernel thread
+  //    by turning off interrupts.
+  while (sema->value == 0)
     {
+      // TODO 对sema->waiters访问为什么不用加锁
       list_push_back (&sema->waiters, &thread_current ()->elem);
       thread_block ();
+      // thread_current ()->status = THREAD_BLOCKED;
+      // schedule ();
     }
   sema->value--;
   intr_set_level (old_level);
@@ -101,6 +125,8 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
+// sema_up可以被外中断handler调用, 因为不会sleep吗
+// 会通知所有waiters
 /** Up or "V" operation on a semaphore.  Increments SEMA's value
    and wakes up one thread of those waiting for SEMA, if any.
 
@@ -196,6 +222,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  // become positive and then atomically decrements it
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
 }
@@ -235,6 +262,7 @@ lock_release (struct lock *lock)
   sema_up (&lock->semaphore);
 }
 
+// 无法检测任意线程是否持有某个锁, 因为answer could change before the caller could act on it.
 /** Returns true if the current thread holds LOCK, false
    otherwise.  (Note that testing whether some other thread holds
    a lock would be racy.) */
@@ -264,10 +292,15 @@ cond_init (struct condition *cond)
   list_init (&cond->waiters);
 }
 
+// 调用函数前需要持有对应的锁
+// 被唤醒后可能条件依然不满足, 需要继续wait
+// 一个条件变量只能对应一个锁, 一个锁可以对应多个条件变量
+// 这个函数可能会sleep, 所以不能在interrupt handler中被调用(原因是死锁那个原因吗??intr_register_ext上的注释)
+// 调用该函数前可能会禁用中断, 但如果休眠, 下一个被调度的thread可能会重新开启中断.
 /** Atomically releases LOCK and waits for COND to be signaled by
    some other piece of code.  After COND is signaled, LOCK is
-   reacquired before returning.  LOCK must be held before calling
-   this function.
+   reacquired before returning. [[[ LOCK must be held before calling
+   this function. ]]]
 
    The monitor implemented by this function is "Mesa" style, not
    "Hoare" style, that is, sending and receiving a signal are not

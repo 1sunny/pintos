@@ -36,10 +36,11 @@ void
 timer_init (void) 
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
+  // 注册时钟中断
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
-/** Calibrates loops_per_tick, used to implement brief delays. */
+/** Calibrates(校准) loops_per_tick, used to implement brief delays. */
 void
 timer_calibrate (void) 
 {
@@ -48,6 +49,7 @@ timer_calibrate (void)
   ASSERT (intr_get_level () == INTR_ON);
   printf ("Calibrating timer...  ");
 
+  // 以最大的 2 次幂来近似loops_per_tick, 仍小于一个定时器刻度
   /* Approximate loops_per_tick as the largest power-of-two
      still less than one timer tick. */
   loops_per_tick = 1u << 10;
@@ -57,6 +59,7 @@ timer_calibrate (void)
       ASSERT (loops_per_tick != 0);
     }
 
+  // 然后再尝试加上后面的二进制位
   /* Refine the next 8 bits of loops_per_tick. */
   high_bit = loops_per_tick;
   for (test_bit = high_bit >> 1; test_bit != high_bit >> 10; test_bit >>= 1)
@@ -70,6 +73,7 @@ timer_calibrate (void)
 int64_t
 timer_ticks (void) 
 {
+  // 需要关中断才能保证不会在获取ticks的时候timer tick
   enum intr_level old_level = intr_disable ();
   int64_t t = ticks;
   intr_set_level (old_level);
@@ -84,7 +88,8 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-/** Sleeps for approximately TICKS timer ticks.  Interrupts must
+// until time has advanced by at least ticks timer ticks.
+/** Sleeps for [[[ approximately ]]] TICKS timer ticks.  Interrupts must
    be turned on. */
 void
 timer_sleep (int64_t ticks) 
@@ -92,6 +97,14 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
+  // Although a working implementation is provided, it "busy waits,"
+  // it spins in a loop checking the current time and calling thread_yield()
+  // until enough time has gone by.
+
+  // Unless the system is otherwise idle,
+  // the thread need not wake up after exactly ticks.
+  // Just put it on the ready queue after they have waited
+  // for the right amount of time.
   while (timer_elapsed (start) < ticks) 
     thread_yield ();
 }
@@ -181,13 +194,21 @@ too_many_loops (unsigned loops)
 {
   /* Wait for a timer tick. */
   int64_t start = ticks;
+// 等待一个新的tick间隔开始
   while (ticks == start)
     barrier ();
+// Without an optimization barrier in the loop,
+// the compiler could conclude that the loop would never terminate,
+// because start and ticks start out equal and the loop itself
+// never changes them.
+// It could then "optimize" the function into an infinite loop,
+// which would definitely be undesirable.
 
   /* Run LOOPS loops. */
   start = ticks;
   busy_wait (loops);
 
+  // start != ticks表示loops次循环超过了一个tick间隔
   /* If the tick count changed, we iterated too long. */
   barrier ();
   return start != ticks;
@@ -205,6 +226,11 @@ busy_wait (int64_t loops)
 {
   while (loops-- > 0)
     barrier ();
+// The goal of this loop is to busy-wait by counting loops down
+// from its original value to 0.
+// Without the barrier, the compiler could delete the loop entirely,
+// because it produces no useful output and has no side effects.
+// The barrier forces the compiler to pretend that the loop body has an important effect.
 }
 
 /** Sleep for approximately NUM/DENOM seconds. */

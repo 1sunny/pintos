@@ -4,6 +4,10 @@
 #include "threads/interrupt.h"
 #include "threads/io.h"
 
+// Code to configure the 8254 Programmable Interrupt Timer.
+// This code is used by both devices/timer.c and devices/speaker.c
+// because each device uses one of the PIT's output channel.
+
 /** Interface to 8254 Programmable Interrupt Timer (PIT).
    Refer to [8254] for details. */
 

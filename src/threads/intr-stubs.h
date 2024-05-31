@@ -11,6 +11,7 @@
    This array points to each of the interrupt stub entry points
    so that intr_init() can easily find them. */
 typedef void intr_stub_func (void);
+// intr-stubs.S 中设置
 extern intr_stub_func *intr_stubs[256];
 
 /** Interrupt return path. */

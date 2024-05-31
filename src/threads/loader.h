@@ -1,7 +1,7 @@
 #ifndef THREADS_LOADER_H
 #define THREADS_LOADER_H
 
-/** 16位real mode */
+// 16位real mode
 /** Constants fixed by the PC BIOS. */
 #define LOADER_BASE 0x7c00      /**< Physical address of loader's base. */
 #define LOADER_END  0x7e00      /**< Physical address of end of loader. */
@@ -9,11 +9,11 @@
 /** Physical address of kernel base. */
 #define LOADER_KERN_BASE 0x20000       /**< 128 kB. */
 
-/** Next, the loader creates a basic page table.
-This page table maps the 64 MB at the base of virtual memory
- (starting at virtual address 0) directly to the identical physical addresses.
-It also maps the same physical memory starting at virtual address LOADER_PHYS_BASE,
- which defaults to 0xc0000000 (3 GB).*/
+// Next, the loader creates a basic page table.
+// This page table maps the 64 MB at the base of virtual memory
+// (starting at virtual address 0) directly to the identical physical addresses.
+// It also maps the same physical memory starting at virtual address LOADER_PHYS_BASE,
+// which defaults to 0xc0000000 (3 GB).
 /** Kernel virtual address at which all physical memory is mapped.
    Must be aligned on a 4 MB boundary. */
 #define LOADER_PHYS_BASE 0xc0000000     /**< 3 GB. */
@@ -39,12 +39,11 @@ It also maps the same physical memory starting at virtual address LOADER_PHYS_BA
 #ifndef __ASSEMBLER__
 #include <stdint.h>
 
-/**< The startup code's first task is actually to obtain the machine's memory size,
-by asking the BIOS for the PC's memory size.
-The simplest BIOS function to do this can only detect up to 64 MB of RAM,
-so that's the practical limit that Pintos can support.
-The function stores the memory size, in pages, in global variable init_ram_pages
- */
+//  The startup code's first task is actually to obtain the machine's memory size,
+//  by asking the BIOS for the PC's memory size.
+//  The simplest BIOS function to do this can only detect up to 64 MB of RAM,
+//  so that's the practical limit that Pintos can support.
+//  The function stores the memory size, in pages, in global variable init_ram_pages
 /** Amount of physical memory, in 4 kB pages. */
 extern uint32_t init_ram_pages;
 #endif

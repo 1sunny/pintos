@@ -2,7 +2,7 @@
 
         .text
 
-/* Main interrupt entry point.
+/* [[[ Main interrupt entry point. ]]]
 
    An internal or external interrupt starts in one of the
    intrNN_stub routines, which push the `struct intr_frame'
@@ -15,6 +15,7 @@
 
    We "fall through" to intr_exit to return from the interrupt.
 */
+// intr_stubs调用的intr_entry
 .func intr_entry
 intr_entry:
 	/* Save caller's registers. */
@@ -22,6 +23,7 @@ intr_entry:
 	pushl %es
 	pushl %fs
 	pushl %gs
+// 将所有通用寄存器的值压入stack: EAX,ECX,EDX,EBX,ESP(执行pushal之前的ESP值),EBP,ESI,EDI
 	pushal
         
 	/* Set up kernel environment. */
@@ -32,6 +34,7 @@ intr_entry:
 	leal 56(%esp), %ebp	/* Set up frame pointer. */
 
 	/* Call interrupt handler. */
+// 为什么要 push esp -> intr_handler(struct intr_frame *frame)的参数
 	pushl %esp
 .globl intr_handler
 	call intr_handler
@@ -60,15 +63,24 @@ intr_exit:
            frame_pointer members. */
 	addl $12, %esp
 
+//     void (*eip) (void);         /**< Next instruction to execute. */
+//     uint16_t cs, :16;           /**< Code segment for eip. */
+//     uint32_t eflags;            /**< Saved CPU flags. */
+//     void *esp;                  /**< Saved stack pointer. */
+//     uint16_t ss, :16;           /**< Data segment for esp. */
+
+// iret(Interrupt Return) 从堆栈中弹出返回地址EIP,CS,标志寄存器EFLAGS
+// 问题: 弹出eip后执行地址不就变了吗
+// 问题: 还剩下esp和ss呢
         /* Return to caller. */
 	iret
 .endfunc
 
 /* Interrupt stubs.
-
+[[[[[
    This defines 256 fragments of code, named `intr00_stub'
-   through `intrff_stub', each of which is used as the entry
-   point for the corresponding interrupt vector.  It also puts
+   through `intrff_stub', [[[[[ each of which is used as the entry
+   point for the corresponding interrupt vector. ]]]]]  It also puts
    the address of each of these functions in the correct spot in
    `intr_stubs', an array of function pointers.
 
@@ -81,15 +93,38 @@ intr_exit:
         3. Push the interrupt number on the stack (vec_no).
 
    The CPU pushes an extra "error code" on the stack for a few
-   interrupts.  Because we want %ebp to be where the error code
-   is, we follow a different path:
+   interrupts. [[[ Because we want %ebp to be where the error code
+   is, ]]] we follow a different path:
 
         1. Push a duplicate copy of the error code on the stack.
 
         2. Replace the original copy of the error code by %ebp.
 
-        3. Push the interrupt number on the stack. */
+        3. Push the interrupt number on the stack.
 
+就是说期望intr_frame最下面是这样:
+----------
+ss
+esp
+eflags
+cs
+eip
+----------
+CPU's error_code | CPU在某些中断时会在这里放一个error_code,但是我们希望这里是frame_pointer
+----------
+frame_pointer
+error_code
+vec_no
+...
+segment register
+...
+general purpose register
+...
+
+]]]]]
+*/
+
+// 谁调用intr_stubs ? intr_stubs[i]信息在idt中,idt通过lidt设置
 	.data
 .globl intr_stubs
 intr_stubs:
@@ -120,6 +155,8 @@ intr##NUMBER##_stub:                            \
                                                 \
 	.data;                                  \
 	.long intr##NUMBER##_stub;
+
+// 这个.long intr##NUMBER##_stub;是用来设置.globl intr_stubs的吗
 
 /* All the stubs. */
 STUB(00, zero) STUB(01, zero) STUB(02, zero) STUB(03, zero)

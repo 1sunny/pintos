@@ -32,6 +32,21 @@
    convert from a struct list_elem back to its enclosing
    structure.  Here's an example using foo_list:
 
+//  LIST_ELEM 是 struct list_elem *e;
+//  #define list_entry(LIST_ELEM, STRUCT, MEMBER)           \
+//         ((STRUCT *) ((uint8_t *) &(LIST_ELEM)->next     \
+//                      - offsetof (STRUCT, MEMBER.next)))
+//
+// (LIST_ELEM)->next: e->next
+// offsetof (STRUCT, MEMBER.next): e->next在foo中的偏移
+//
+//
+// struct foo
+//   {
+//     struct list_elem elem; // == elem ==
+//     int bar;
+//     ...other members...
+//   };
       struct list_elem *e;
 
       for (e = list_begin (&foo_list); e != list_end (&foo_list);
@@ -93,9 +108,23 @@ struct list_elem
     struct list_elem *next;     /**< Next list element. */
   };
 
+// list_front:
+//            list_front (struct list *list) {
+//              ASSERT (!list_empty (list));
+//              return list->head.next;
+//            }
+// list_back : 最后一个元素
+// list_begin:
+//            list_begin (struct list *list) {
+//              ASSERT (list != NULL);
+//              return list->head.next;
+//            }
+// list_end  : 不保存元素
+
 /** List. */
 struct list 
   {
+    // head和tail不保存元素
     struct list_elem head;      /**< List head. */
     struct list_elem tail;      /**< List tail. */
   };
@@ -105,6 +134,8 @@ struct list
    name of the outer structure STRUCT and the member name MEMBER
    of the list element.  See the big comment at the top of the
    file for an example. */
+// &(LIST_ELEM)->next - offsetof(STRUCT, MEMBER.next):
+// 从 next 成员的地址减去该成员的偏移量，得到整个结构体的起始地址。
 #define list_entry(LIST_ELEM, STRUCT, MEMBER)           \
         ((STRUCT *) ((uint8_t *) &(LIST_ELEM)->next     \
                      - offsetof (STRUCT, MEMBER.next)))
