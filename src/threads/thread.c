@@ -115,8 +115,8 @@ thread_init (void)
   initial_thread->tid = allocate_tid ();
 }
 
-// Called by pintos_init() to start the scheduler.
-// Creates the idle thread(空闲线程), that is, the thread that is scheduled when no other thread is ready.
+// 用于开起抢占式调度,开启之前只有main一个线程,Called by pintos_init()
+// 创建idle thread, 这个线程在其它现在阻塞时被scheduled
 /** Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
 void
@@ -430,6 +430,11 @@ thread_get_recent_cpu (void)
   return 0;
 }
 
+
+// idle thread最初是被thread_start放在ready list中,
+// 然后会被scheduled一次,at which point it initializes idle_thread(全局静态变量)
+// 之后,idle thread就不会出现在ready list中
+// 在next_thread_to_run()中没有ready thread的时候会返回idle thread
 /** Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -564,6 +569,7 @@ next_thread_to_run (void)
   else {
     int priority = -1;
     struct thread *highest_priority_thread = NULL;
+    struct list_elem *to_remove = NULL;
     struct list_elem *e;
     for (e = list_begin (&ready_list); e != list_end (&ready_list);
          e = list_next (e))
@@ -572,17 +578,19 @@ next_thread_to_run (void)
       if (curr->priority > priority) {
         priority = curr->priority;
         highest_priority_thread = curr;
+        to_remove = e;
       }
     }
+    list_remove (to_remove);
     ASSERT (highest_priority_thread != NULL);
     return highest_priority_thread;
   }
 // --- Lab1: Task 2 ---
 
-  if (list_empty (&ready_list))
-    return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  // if (list_empty (&ready_list))
+  //   return idle_thread;
+  // else
+  //   return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
 /** Completes a thread switch by activating the new thread's page
