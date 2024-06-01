@@ -282,6 +282,17 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
+// --- Lab1: Task 2 ---
+  // TODO 这个函数可能在中断上下文中吗?
+  // 应该是在intr_disable中调用吧?
+  if (t->priority > thread_current()->priority) {
+    if (intr_context()) {
+      intr_yield_on_return();
+    } else {
+      thread_yield();
+    }
+  }
+// --- Lab1: Task 2 ---
   intr_set_level (old_level);
 }
 
@@ -511,10 +522,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-// ---
+// --- Lab1: Task 1 ---
   t->sleep_until_ticks = -1;
   t->sema = NULL;
-// ---
+// --- Lab1: Task 1 ---
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -542,6 +553,32 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
+// --- Lab1: Task 2 ---
+  // 这个函数应该是在关中断时运行, 所以不存在同步问题
+  ASSERT (intr_get_level () == INTR_OFF);
+  // TODO idle_thread在哪初始化的? thread_start -> thread_create
+  // TODO idle_thread的priority是多少? PRI_MIN(0)
+  if (list_empty (&ready_list)) {
+    return idle_thread;
+  }
+  else {
+    int priority = -1;
+    struct thread *highest_priority_thread = NULL;
+    struct list_elem *e;
+    for (e = list_begin (&ready_list); e != list_end (&ready_list);
+         e = list_next (e))
+    {
+      struct thread *curr = list_entry (e, struct thread, elem);
+      if (curr->priority > priority) {
+        priority = curr->priority;
+        highest_priority_thread = curr;
+      }
+    }
+    ASSERT (highest_priority_thread != NULL);
+    return highest_priority_thread;
+  }
+// --- Lab1: Task 2 ---
+
   if (list_empty (&ready_list))
     return idle_thread;
   else

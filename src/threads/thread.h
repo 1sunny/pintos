@@ -125,8 +125,10 @@ struct thread
     // Stack overflow tends to change this value, triggering the assertion.
     /* Owned by thread.c. */
     unsigned magic;                     /**< Detects stack overflow. */
+    // --- Lab1: Task 1 ---
     int64_t sleep_until_ticks;
     struct semaphore *sema;
+    // --- Lab1: Task 1 ---
   };
 
 /** If false (default), use round-robin scheduler.

@@ -2,6 +2,9 @@
 #include <debug.h>
 #include "threads/thread.h"
 
+// Interrupt queue, for managing a circular queue that both kernel threads
+// and interrupt handlers want to access. Used by the keyboard and serial drivers.
+
 static int next (int pos);
 static void wait (struct intq *q, struct thread **waiter);
 static void signal (struct intq *q, struct thread **waiter);

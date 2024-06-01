@@ -190,7 +190,7 @@ register_handler (uint8_t vec_no, int dpl, enum intr_level level,
 }
 
 // 在外中断handler中, 传递给handler的struct intr_frame没什么用, 因为不知道是哪个thread被中断了
-// 内中断和外中断都不能在外中断handler中嵌套, 外中断时必须关闭中断, (TODO handler出现page fault怎么办?)
+// 内中断和外中断都不能在外中断handler中嵌套, 外中断时必须关闭中断, (TODO handler出现page fault怎么办? 关中断只是关外中断,内中断依然是和CPU同步的)
 // 外中断handler不能sleep和yield, 所以不能调用lock_acquire(), thread_yield()等函数
 
 // 在中断上下文中sleep也会使被中断的线程sleep, 直到中断处理程序再次被调度并返回

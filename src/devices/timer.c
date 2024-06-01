@@ -111,6 +111,7 @@ timer_sleep (int64_t ticks)
 // 原始代码:
 //  while (timer_elapsed (start) < ticks)
 //     thread_yield ();
+// --- Lab1: Task 1 ---
   if (ticks <= 0) {
     return;
   }
@@ -121,6 +122,7 @@ timer_sleep (int64_t ticks)
   sema_down(&sema);
   thread_current ()->sleep_until_ticks = -1;
   thread_current ()->sema = NULL;
+// --- Lab1: Task 1 ---
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -192,7 +194,7 @@ timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+// --- Lab1: Task 1 ---
 void thread_sleep_check (struct thread *t, void *aux UNUSED) {
   if (t->sema != NULL && t->sleep_until_ticks <= ticks) {
     // Unlike most synchronization primitives,
@@ -203,14 +205,14 @@ void thread_sleep_check (struct thread *t, void *aux UNUSED) {
     t->sema = NULL;
   }
 }
-
+// --- Lab1: Task 1 ---
 /** Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   // 这里中断应该由CPU关了的吧?
   ticks++;
-// -----
+// --- Lab1: Task 1 ---
 // 这里放在中间感觉比较好,这样如果sleeping thread满足条件,thread_tick时就有可能被唤醒
 // In addition, when modifying some global variable,
 // e.g., a global list, you will need to use some synchronization primitive
@@ -220,7 +222,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 // 但是interrupt handler不能sleep啊, 怎么同步???
 // 关中断的时候不需要同步吧,自然就是同步的
   thread_foreach(thread_sleep_check, NULL);
-// -----
+// --- Lab1: Task 1 ---
   thread_tick ();
   // Hint: You need to decide where to check whether
   // the elapsed time exceeded the sleep time.
