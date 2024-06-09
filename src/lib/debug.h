@@ -13,6 +13,8 @@
    function name, plus a user-specific message. */
 #define PANIC(...) debug_panic (__FILE__, __LINE__, __func__, __VA_ARGS__)
 
+void dprintf (const char *message, ...) PRINTF_FORMAT (1, 2);
+
 void debug_panic (const char *file, int line, const char *function,
                   const char *message, ...) PRINTF_FORMAT (4, 5) NO_RETURN;
 void debug_backtrace (void);

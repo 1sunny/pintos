@@ -15,6 +15,8 @@
 #include "userprog/process.h"
 #endif
 
+const char* thread_status_names[] = {"RU", "RE", "B", "D"};
+
 /** Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
@@ -97,7 +99,7 @@ static tid_t allocate_tid (void);
 void
 thread_init (void) 
 {
-  // 保证中断是关闭的
+  // 保证中断是关闭的, 谁关的? 初始化好就还没开过, pintos_init后续调用thread_start开启
   ASSERT (intr_get_level () == INTR_OFF);
 
   // tid_lock: Lock used by allocate_tid().
@@ -115,6 +117,7 @@ thread_init (void)
   initial_thread->tid = allocate_tid ();
 }
 
+// pintos_init中唯一调用
 // 用于开起抢占式调度,开启之前只有main一个线程,Called by pintos_init()
 // 创建idle thread, 这个线程在其它现在阻塞时被scheduled
 /** Starts preemptive thread scheduling by enabling interrupts.
@@ -134,16 +137,21 @@ thread_start (void)
   /* Start preemptive thread scheduling(打开中断, 启动抢占式线程调度). */
   intr_enable ();
 
+  dprintf("[%s:%s:%d] call sema_down for idle in thread_start\n",
+         thread_current()->name, thread_status_names[thread_current()->status], thread_current()->priority);
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down (&idle_started);
+  // 中断依然开启的, sema_down关闭后又恢复
 }
 
+// [[[ 这个函数不能调用printf ]]]
 // keeps track of thread statistics and triggers the scheduler when a time slice expires.
 /** Called by the timer interrupt handler at each timer tick.
    Thus, [[[ this function runs in an external interrupt context. ??? ]]] */
 void
 thread_tick (void) 
 {
+  // 为什么不加 Assert in an external interrupt context
   struct thread *t = thread_current ();
 
   /* Update statistics. */
@@ -159,8 +167,12 @@ thread_tick (void)
   // 执行抢占
   // TIME_SLICE: # of timer ticks to give each thread
   /* Enforce preemption. */
-  if (++thread_ticks >= TIME_SLICE)
+  if (++thread_ticks >= TIME_SLICE) {
+    // 难道是因为这里, 在外中断中睡眠了
+    // dprintf("[%s:%s:%d] call intr_yield_on_return in thread_tick\n",
+    //        thread_current ()->name, thread_status_names[thread_current ()->status], thread_current ()->priority);
     intr_yield_on_return ();
+  }
 }
 
 // Called during Pintos shutdown to print thread statistics.
@@ -239,12 +251,16 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;  // Return address
   sf->ebp = 0;
 
+  dprintf("[%s:%s:%d] call thread_unblock for [%s:%s:%d] in thread_create\n",
+         thread_current()->name, thread_status_names[thread_current()->status], thread_current()->priority,
+         t->name, thread_status_names[t->status], t->priority);
   /* Add to run queue. */
   thread_unblock (t);
 
   return tid;
 }
 
+// [[[ 这个函数不能调用printf ]]]
 /** Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
 
@@ -258,8 +274,9 @@ thread_block (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   thread_current ()->status = THREAD_BLOCKED;
-  // 主动调用thread_block
+  // 主动调用schedule
   schedule ();
+  // schedule后谁来开中断?
 }
 
 /** Transitions a blocked thread T to the ready-to-run state.
@@ -282,17 +299,6 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
-// --- Lab1: Task 2 ---
-  // TODO 这个函数可能在中断上下文中吗?
-  // 应该是在intr_disable中调用吧?
-  if (t->priority > thread_current()->priority) {
-    if (intr_context()) {
-      intr_yield_on_return();
-    } else {
-      thread_yield();
-    }
-  }
-// --- Lab1: Task 2 ---
   intr_set_level (old_level);
 }
 
@@ -317,7 +323,7 @@ thread_current (void)
      of stack, so a few big automatic arrays or moderate
      recursion can cause stack overflow. */
   ASSERT (is_thread (t));
-  ASSERT (t->status == THREAD_RUNNING);
+  // ASSERT (t->status == THREAD_RUNNING);
 
   return t;
 }
@@ -343,13 +349,22 @@ thread_exit (void)
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
-  intr_disable ();
+  dprintf("[%s:%s:%d] exit and call schedule\n", thread_current()->name, thread_status_names[thread_current()->status], thread_current()->priority);
+  intr_disable (); // 在哪开的? 线程结束时自己调用的thread_exit, 中断肯定是开的
+  // schedule后谁来开启中断啊
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
+  // schedule后谁来开中断?
   NOT_REACHED ();
 }
 
+// 1. kernel_thread调用intr_enable, 然后执行 function
+// 2. function被timer打断进入intr_handler, intr_handler中中断是关的(CPU自己关)
+// 3. intr_handler处理了timer中断调用thread_yield, 后续通过schedule重新恢复执行
+//    但是中断还是关的啊, 什么时候恢复呢: intr-stubs.S中恢复eflags时恢复的
+// 只有intr_handler中如果yield_on_return, 就会调用
+// yields the CPU但是当前线程不sleep,可能会被立即调度
 /** Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
@@ -359,12 +374,17 @@ thread_yield (void)
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
+  // 这里还处理关中断, 如果打印太多在bochs里会卡死
+  // dprintf("[%s:%s:%d] yield and call schedule\n",
+  //         cur->name, thread_status_names[cur->status], cur->priority);
+  dprintf("[%s:%s:%d] yd\n", cur->name, thread_status_names[cur->status], cur->priority);
   // 需要关中断
   old_level = intr_disable ();
   if (cur != idle_thread) 
     list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
+  // 新线程, 返回intr_handler, 那中断里面记录的eip还有啥用?
   intr_set_level (old_level);
 }
 
@@ -449,12 +469,14 @@ idle (void *idle_started_ UNUSED)
 {
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
+  dprintf("[%s:%s:%d] in idle\n", idle_thread->name, thread_status_names[idle_thread->status], idle_thread->priority);
   sema_up (idle_started);
 
   for (;;) 
     {
+      dprintf("idle running and call thread_block\n");
       /* Let someone else run. */
-      intr_disable ();
+      intr_disable (); // 在哪开的, ↓
       thread_block ();
 
       /* Re-enable interrupts and wait for the next one.
@@ -550,6 +572,7 @@ alloc_frame (struct thread *t, size_t size)
   return t->stack;
 }
 
+// [[[ 这个函数不能调用printf ]]]
 /** Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
    empty.  ([[[ If the running thread can continue running, then it
@@ -558,54 +581,29 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-// --- Lab1: Task 2 ---
-  // 这个函数应该是在关中断时运行, 所以不存在同步问题
-  ASSERT (intr_get_level () == INTR_OFF);
-  // TODO idle_thread在哪初始化的? thread_start -> thread_create
-  // TODO idle_thread的priority是多少? PRI_MIN(0)
-  if (list_empty (&ready_list)) {
+  if (list_empty (&ready_list))
     return idle_thread;
-  }
-  else {
-    int priority = -1;
-    struct thread *highest_priority_thread = NULL;
-    struct list_elem *to_remove = NULL;
-    struct list_elem *e;
-    for (e = list_begin (&ready_list); e != list_end (&ready_list);
-         e = list_next (e))
-    {
-      struct thread *curr = list_entry (e, struct thread, elem);
-      if (curr->priority > priority) {
-        priority = curr->priority;
-        highest_priority_thread = curr;
-        to_remove = e;
-      }
-    }
-    list_remove (to_remove);
-    ASSERT (highest_priority_thread != NULL);
-    return highest_priority_thread;
-  }
-// --- Lab1: Task 2 ---
-
-  // if (list_empty (&ready_list))
-  //   return idle_thread;
-  // else
-  //   return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  else
+    return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
 /** Completes a thread switch by activating the new thread's page
    tables, and, if the previous thread is dying, destroying it.
 
    At this function's invocation, we just switched from thread
-   PREV, the new thread is already running, and interrupts are
-   still disabled.  This function is normally invoked by
+   PREV, the new thread is already running, [[[[[ and interrupts are
+   still disabled. 现在是切换后的线程了, 但中断依然是关的, 多久开呢??? ]]]]]
+   This function is normally invoked by
    thread_schedule() as its final action before returning, but
    the first time a thread is scheduled it is called by
    switch_entry() (see switch.S).
+   一个线程第一次被schedule是switch_entry模拟schedule行为调用switch_threads
 
    It's not safe to call printf() until the thread switch is
    complete.  In practice that means that printf()s should be
    added at the end of the function.
+   printf只能在函数的最后或者结束才能添加, 否则如果锁不在自己手上会一直循环去要求schedule,
+   等拿锁的那个thread放锁, 但就陷入了循环, 因为在要求schedule的路上又会调用printf
 
    After this function and its caller returns, the thread switch
    is complete. */
@@ -647,8 +645,11 @@ thread_schedule_tail (struct thread *prev)
 // called only by the three public thread functions that need to switch threads:
 //   thread_block()
 //   thread_exit()
-//   thread_yield()
+//   thread_yield(): 中断时CPU把eflags保存到了intr_frame,然后屏蔽中断?中断结束时恢复(进而允许外中断)
 
+// 调用schedule需要保证关中断 (但是schedule后谁来开呢后续???)
+// 并且running process's state已经被修改为合适的状态
+// [[[ 这个函数不能调用printf ]]]
 // [[[[[ Before any of these functions call schedule(),
 // they disable interrupts (or ensure that they are already disabled)
 // and then change the running thread's state to something other than running. ]]]]]
@@ -657,8 +658,9 @@ thread_schedule_tail (struct thread *prev)
    running to some other state.  This function finds another
    thread to run and switches to it.
 
-   It's not safe to call printf() until thread_schedule_tail()
-   has completed. */
+ 我去这里居然提到了......
+   [[[[[ It's not safe to call printf() until thread_schedule_tail()
+   has completed. ]]]]] */
 static void
 schedule (void) 
 {
@@ -666,7 +668,12 @@ schedule (void)
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
 
-  // 需要关中断才能进行线程调度,TODO 为什么调度的时候不能处理中断?
+  // 需要关中断才能进行线程调度,
+  // TODO 为什么调度的时候不能处理中断?
+  //   外中断 handler和 kernel thread的共享数据只能通过关中断来保护, 因为外中断 handler不能 sleep
+  // TODO 为什么外中断 handler不能 sleep?
+  //   sleep的话会导致当前被打断的 thread sleep(中断处理是在当前 thread下 ?), 直到 handler被再次调用,
+  //   但可能这个 handler在等 sleeping thread release a lock
   // 在调度的时候timer到了,又应该进行调度...
   ASSERT (intr_get_level () == INTR_OFF);
   // status: Thread state
@@ -680,6 +687,7 @@ schedule (void)
   // returning the previously running thread.
   if (cur != next)
     prev = switch_threads (cur, next);
+  // 切换到之前运行到这的 next thread, 为prev
   thread_schedule_tail (prev);
 }
 

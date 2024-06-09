@@ -54,6 +54,7 @@ sema_init (struct semaphore *sema, unsigned value)
   list_init (&sema->waiters);
 }
 
+// [[[ 这个函数不能调用printf ]]]
 // TODO 注释里的interrupt handler指外中断handler还是所有handler???
 // 这个函数可能会sleep, 所以不能在interrupt handler中被调用(原因是死锁那个原因吗??intr_register_ext上的注释)
 
@@ -79,21 +80,16 @@ sema_down (struct semaphore *sema)
   // 相当于这个线程不会被时间片打断, 这个函数也不会被interrupt handler调用
   // TODO 但如果这个线程触发内中断, 并且内中断如果也需要访问这个sema,那不是会...
   // 除非内中断不会访问这个sema
-  // In the Pintos projects,
-  // the only class of problem best solved by disabling interrupts is
-  // coordinating data _shared between a kernel thread
-  // and an interrupt handler_.
-  //    Because interrupt handlers can't sleep, they can't acquire locks.
-  //    This means that data shared between kernel threads
-  //    and an interrupt handler must be protected within a kernel thread
-  //    by turning off interrupts.
+  // [[[[[[[[[[[[[[[[[[[[ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  // Pintos中通过关闭中断来解决的问题: 在 kernel thread 和 interrupt handler_ 中共享的数据
+  //   因为 interrupt handlers 不能 sleep, 也就不能获取 locks
+  //   意味着共享数据在 kernel thread 处理时只能关中断来保护
+  // [[[[[[[[[[[[[[[[[[[[ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   while (sema->value == 0)
     {
       // TODO 对sema->waiters访问为什么不用加锁
       list_push_back (&sema->waiters, &thread_current ()->elem);
-      thread_block ();
-      // thread_current ()->status = THREAD_BLOCKED;
-      // schedule ();
+      thread_block (); // thread_current ()->status = THREAD_BLOCKED; schedule ();
     }
   sema->value--;
   intr_set_level (old_level);
@@ -125,6 +121,7 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
+// [[[ 这个函数不能调用printf ]]]
 // sema_up可以被外中断handler调用, 因为不会sleep吗
 // 会通知所有waiters
 /** Up or "V" operation on a semaphore.  Increments SEMA's value
@@ -139,9 +136,14 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+  if (!list_empty (&sema->waiters)) {
+    struct thread *t = list_entry (list_pop_front(&sema->waiters),
+                                   struct thread, elem);
+    thread_unblock (t);
+    // 原始代码:
+    // thread_unblock (list_entry (list_pop_front (&sema->waiters),
+    //                             struct thread, elem));
+  }
   sema->value++;
   intr_set_level (old_level);
 }
@@ -222,9 +224,15 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  // 为什么在这里打印要panic, 因为线程还没初始化好? 是因为会循环调用printf导致栈溢出, magic对不上
+  // printf("call sema_down in lock_acquire\n");
   // become positive and then atomically decrements it
   sema_down (&lock->semaphore);
+  // 这里也会panic: // ASSERT (t->status == THREAD_RUNNING);
   lock->holder = thread_current ();
+  // 这里不会,因为 schedule返回了, 看schedule中的注释
+  // printf("[%s:%s:%d] called sema_down in lock_acquire\n",
+  //        thread_current()->name, thread_status_names[thread_current()->status], thread_current()->priority);
 }
 
 /** Tries to acquires LOCK and returns true if successful or false

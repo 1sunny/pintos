@@ -11,7 +11,7 @@
 //      and attempts to divide by zero are some activities that cause internal interrupts.
 //   2. Because they are caused by CPU instructions,
 //      internal interrupts are synchronous or synchronized with CPU instructions.
-//      [[[[[ intr_disable() does not disable internal interrupts. ]]]]]
+//      [[[[[ intr_disable() 并不关闭外中断. ]]]]]
 //
 // External interrupts, that is, interrupts originating outside the CPU.
 //   1. These interrupts come from hardware devices such as the system timer,
@@ -48,7 +48,7 @@ enum intr_level intr_get_level (void);
 enum intr_level intr_set_level (enum intr_level);
 enum intr_level intr_enable (void);
 
-// [[[[[ intr_disable() does not disable internal interrupts. ]]]]]
+// [[[[[ intr_disable() 并不关闭外中断. ]]]]]
 // Turns interrupts off.
 // Returns the previous interrupt state.
 enum intr_level intr_disable (void);

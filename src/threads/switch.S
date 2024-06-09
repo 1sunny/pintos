@@ -39,7 +39,7 @@ switch_threads:
 #  #define SWITCH_NEXT     24
 	# Save current stack pointer to old thread's stack, if any.
 	movl SWITCH_CUR(%esp), %eax
-# 基址变址寻址的格式
+# 基址变址寻址的格式: Effective Address = base + (index * scale) + displacement
 # (base, index, scale)
 # base: 基址寄存器（这里是 %eax），包含了基址地址。
 # index: 变址寄存器（这里是 %edx），提供了偏移量。
@@ -96,7 +96,7 @@ switch_entry:
 	addl $8, %esp
 
 	# Call thread_schedule_tail(prev).
-	# prev = eax
+	# prev = eax, eax是switch_threads中的cur(被切换的线程)
 	pushl %eax
 .globl thread_schedule_tail
 	call thread_schedule_tail

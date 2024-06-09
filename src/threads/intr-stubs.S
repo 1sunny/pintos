@@ -69,9 +69,10 @@ intr_exit:
 //     void *esp;                  /**< Saved stack pointer. */
 //     uint16_t ss, :16;           /**< Data segment for esp. */
 
-// iret(Interrupt Return) 从堆栈中弹出返回地址EIP,CS,标志寄存器EFLAGS
-// 问题: 弹出eip后执行地址不就变了吗
-// 问题: 还剩下esp和ss呢
+// IRET指令会执行以下操作:
+//  恢复EIP,CS,EFLAGS
+//  如果在保护模式下并且使用特权级转换(如从内核态返回到用户态),
+//  IRET指令还会恢复SS和ESP
         /* Return to caller. */
 	iret
 .endfunc

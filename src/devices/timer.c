@@ -119,6 +119,8 @@ timer_sleep (int64_t ticks)
   struct semaphore sema;
   thread_current ()->sema = &sema;
   sema_init (&sema, 0);
+  dprintf("[%s:%s:%d] call sema_down in timer_sleep\n",
+         thread_current()->name, thread_status_names[thread_current()->status], thread_current()->priority);
   sema_down(&sema);
   thread_current ()->sleep_until_ticks = -1;
   thread_current ()->sema = NULL;

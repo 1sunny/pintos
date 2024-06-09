@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "synch.h"
 
+extern const char* thread_status_names[];
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -136,6 +137,7 @@ struct thread
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
+// void thread_print (struct thread *t);
 void thread_init (void);
 void thread_start (void);
 

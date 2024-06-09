@@ -112,6 +112,7 @@ intr_enable (void)
 
 // 任何同步问题都可以通过关闭中断解决, 关闭了中断, 就没有concurrency
 // [[[ intr_disable并不关闭内中断 ]]], 因为内中断由CPU产生, 和CPU指令是同步的
+// [[[ 尽量减少关闭中断时的代码, 否则会丢失timer ticks或者input events. ]]]
 /** Disables interrupts and returns the previous interrupt status. */
 enum intr_level
 intr_disable (void) 
@@ -390,6 +391,7 @@ make_idtr_operand (uint16_t limit, void *base)
 
 /** Interrupt handlers. */
 
+// intr_handler被intr-stubs.S中的interrupt stubs调用
 /** [[[ Handler for all interrupts, faults, and exceptions. ]]]  This
    function is called by the assembly language interrupt stubs in
    intr-stubs.S. [[[ FRAME describes the interrupt and the
@@ -408,7 +410,7 @@ intr_handler (struct intr_frame *frame)
   external = frame->vec_no >= 0x20 && frame->vec_no < 0x30;
   if (external) 
     {
-      // TODO 在哪关的中断?
+      // TODO 在哪关的中断? 应该是CPU自己关的?
       // intr_register_int: Specifying INTR_OFF will cause the CPU to
       // disable external interrupts when it invokes the interrupt handler.
       ASSERT (intr_get_level () == INTR_OFF);

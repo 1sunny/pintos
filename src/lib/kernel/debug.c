@@ -13,6 +13,18 @@
 #include "devices/serial.h"
 #include "devices/shutdown.h"
 
+#define DEBUG 1
+
+void dprintf (const char *message, ...) {
+  if (DEBUG == 0) {
+    return;
+  }
+  va_list args;
+  va_start (args, message);
+  vprintf (message, args);
+  va_end (args);
+}
+
 /** Halts the OS, printing the source file name, line number, and
    function name, plus a user-specific message. */
 void

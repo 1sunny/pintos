@@ -119,7 +119,7 @@ pintos_init (void)
 
   /* Initialize interrupt handlers. */
   // sets up the CPU's interrupt descriptor table (IDT) to ready it for interrupt handling (see section Interrupt Handling)
-  intr_init ();
+  intr_init (); // 初始化了中断但还没开启, thread_start中才开启的(开始抢占式调度)
   // prepare for handling timer interrupts and keyboard interrupts, respectively
   timer_init ();
   kbd_init ();
