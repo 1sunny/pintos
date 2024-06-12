@@ -299,6 +299,13 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
+  if (t->priority > thread_current()->priority) {
+    if (intr_context()) {
+      intr_yield_on_return ();
+    } else {
+      thread_yield();
+    }
+  }
   intr_set_level (old_level);
 }
 
@@ -582,10 +589,34 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
+// --- Lab1: Task 2 ---
+  // 这个函数应该是在关中断时运行, 所以不存在同步问题
+  ASSERT (intr_get_level () == INTR_OFF);
+  // TODO idle_thread在哪初始化的? thread_start -> thread_create
+  // TODO idle_thread的priority是多少? PRI_MIN(0)
+  if (list_empty (&ready_list)) {
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  }
+  else {
+    int priority = -1;
+    struct thread *highest_priority_thread = NULL;
+    struct list_elem *to_remove = NULL;
+    struct list_elem *e;
+    for (e = list_begin (&ready_list); e != list_end (&ready_list);
+         e = list_next (e))
+    {
+      struct thread *curr = list_entry (e, struct thread, elem);
+      if (curr->priority > priority) {
+        priority = curr->priority;
+        highest_priority_thread = curr;
+        to_remove = e;
+      }
+    }
+    list_remove (to_remove);
+    ASSERT (highest_priority_thread != NULL);
+    return highest_priority_thread;
+  }
+// --- Lab1: Task 2 ---
 }
 
 /** Completes a thread switch by activating the new thread's page
@@ -605,6 +636,7 @@ next_thread_to_run (void)
    added at the end of the function.
    printf只能在函数的最后或者结束才能添加, 否则如果锁不在自己手上会一直循环去要求schedule,
    等拿锁的那个thread放锁, 但就陷入了循环, 因为在要求schedule的路上又会调用printf
+   所以需要等切换完成后再调用printf,如果切换到了拿到printf锁的就不需要再拿锁了
 
    After this function and its caller returns, the thread switch
    is complete. */

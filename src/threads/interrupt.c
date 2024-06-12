@@ -191,13 +191,17 @@ register_handler (uint8_t vec_no, int dpl, enum intr_level level,
 }
 
 // 在外中断handler中, 传递给handler的struct intr_frame没什么用, 因为不知道是哪个thread被中断了
-// 内中断和外中断都不能在外中断handler中嵌套, 外中断时必须关闭中断, (TODO handler出现page fault怎么办? 关中断只是关外中断,内中断依然是和CPU同步的)
-// 外中断handler不能sleep和yield, 所以不能调用lock_acquire(), thread_yield()等函数
 
-// 在中断上下文中sleep也会使被中断的线程sleep, 直到中断处理程序再次被调度并返回
+// 一次只能处理一个外中断
+// 内中断和外中断都不能在外中断handler中嵌套, 外中断时必须关闭中断, (TODO handler出现page fault怎么办? 关中断只是关外中断,内中断依然是和CPU同步的)
+
+// 外中断handler不能sleep和yield, 所以不能调用lock_acquire(), thread_yield()等函数
+// 在外中断上下文中sleep也会使被中断的线程sleep, 直到中断处理程序再次被调度并返回
 // 这对于unlucky thread来说是不公平的,
 // 并且如果handler正在等待sleeping thread to(release a lock),
-// 则会发生死锁, 因为handler用sleep等待着这个thread.
+// 则会发生死锁(因为外中断时关了中断,不能schedule到其它thread ?).
+
+// 外中断处理程序独占机器并延迟所有其他活动, 应尽快完成
 
 // 外中断由CPU之外的一对可编程中断控制器控制
 // 当intr_init设置CPU的IDT时, 也会初始化PICs for interrupt handling
@@ -221,6 +225,7 @@ intr_register_ext (uint8_t vec_no, intr_handler_func *handler,
 // 例如Pintos系统调用通过修改保存到intr_frame的eax来返回值
 
 // 内中断可能被其它kernel threads抢占,需要在共享资源上和其它线程同步
+// TODO 哪些是共享资源?
 // 内中断可以被递归调用,例如系统调用handler可能造成page fault
 /** Registers internal interrupt VEC_NO to invoke HANDLER, which
    is named NAME for debugging purposes.  The interrupt handler

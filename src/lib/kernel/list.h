@@ -135,7 +135,8 @@ struct list
    of the list element.  See the big comment at the top of the
    file for an example. */
 // &(LIST_ELEM)->next - offsetof(STRUCT, MEMBER.next):
-// 从 next 成员的地址减去该成员的偏移量，得到整个结构体的起始地址。
+// offsetof (STRUCT, MEMBER.next) 得到 MEMBER.next 相对于结构体起始地址的偏移量
+// 从 &(LIST_ELEM)->next 减去该成员的偏移量，得到整个结构体的起始地址。
 #define list_entry(LIST_ELEM, STRUCT, MEMBER)           \
         ((STRUCT *) ((uint8_t *) &(LIST_ELEM)->next     \
                      - offsetof (STRUCT, MEMBER.next)))
