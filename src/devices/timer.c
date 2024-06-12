@@ -92,7 +92,7 @@ timer_elapsed (int64_t then)
 /** Sleeps for [[[ approximately ]]] TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t ticks) 
+timer_sleep (int64_t sleep_ticks)
 {
   int64_t start = timer_ticks ();
 
@@ -112,15 +112,17 @@ timer_sleep (int64_t ticks)
 //  while (timer_elapsed (start) < ticks)
 //     thread_yield ();
 // --- Lab1: Task 1 ---
-  if (ticks <= 0) {
+  if (sleep_ticks <= 0) {
     return;
   }
-  thread_current ()->sleep_until_ticks = start + ticks;
+  thread_current ()->sleep_until_ticks = start + sleep_ticks;
   struct semaphore sema;
   thread_current ()->sema = &sema;
   sema_init (&sema, 0);
-  dprintf("[%s:%s:%d] call sema_down in timer_sleep\n",
-         thread_current()->name, thread_status_names[thread_current()->status], thread_current()->priority);
+  // 在睡眠之前想打印,但锁可能在其它线程,进而错过了最准确的睡眠的时机
+  // dprintf("[%s:%s:%d] timer_sleep from %lld to %lld\n",
+  //        thread_current()->name, thread_status_names[thread_current()->status], thread_current()->priority,
+  //        start, thread_current ()->sleep_until_ticks);
   sema_down(&sema);
   thread_current ()->sleep_until_ticks = -1;
   thread_current ()->sema = NULL;

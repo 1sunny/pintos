@@ -374,10 +374,11 @@ thread_yield (void)
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
-  // 这里还处理关中断, 如果打印太多在bochs里会卡死
+  // 这里处于关中断(如果只是在intr_handler被调用), 如果打印太多在bochs里会卡死
   // dprintf("[%s:%s:%d] yield and call schedule\n",
   //         cur->name, thread_status_names[cur->status], cur->priority);
-  dprintf("[%s:%s:%d] yd\n", cur->name, thread_status_names[cur->status], cur->priority);
+  // 最好还是不打印,在关中断里面打印会扰乱输出
+  // dprintf("[%s:%s:%d] yd\n", cur->name, thread_status_names[cur->status], cur->priority);
   // 需要关中断
   old_level = intr_disable ();
   if (cur != idle_thread) 
