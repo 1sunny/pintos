@@ -13,7 +13,7 @@
 #include "devices/serial.h"
 #include "devices/shutdown.h"
 
-#define DEBUG 1
+#define DEBUG 0
 
 void dprintf (const char *message, ...) {
   if (DEBUG == 0) {
