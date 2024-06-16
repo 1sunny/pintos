@@ -130,7 +130,12 @@ struct thread
     int64_t sleep_until_ticks;
     struct semaphore *sema;
     // --- Lab1: Task 1 ---
-  };
+    // --- Lab1: Task 2 ---
+    int priority_before_donate;
+    struct list locks;
+    struct lock *waiting_lock;
+    // --- Lab1: Task 2 ---
+};
 
 /** If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

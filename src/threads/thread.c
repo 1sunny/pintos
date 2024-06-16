@@ -414,7 +414,23 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  // thread_current ()->priority = new_priority;
+  if (thread_mlfqs)
+    return;
+
+  // 也是不需要关中断的
+  enum intr_level old_level = intr_disable ();
+
+  struct thread *curr_thread = thread_current ();
+  curr_thread->priority_before_donate = new_priority;
+
+  // 如果不持有锁(不会被donate)或者new_priority大于现在的priority
+  if (list_empty (&curr_thread->locks) || new_priority > curr_thread->priority) {
+    curr_thread->priority = new_priority;
+    thread_yield ();
+  }
+
+  intr_set_level (old_level);
 }
 
 /** Returns the current thread's priority. */
@@ -508,6 +524,9 @@ kernel_thread (thread_func *function, void *aux)
   ASSERT (function != NULL);
 
   intr_enable ();       /**< The scheduler runs with interrupts off. */
+  struct thread *curr = thread_current();
+  dprintf("[%s:%s:%d] RU\n",
+          curr->name, thread_status_names[curr->status], curr->priority);
   function (aux);       /**< Execute the thread function. */
   thread_exit ();       /**< If function() returns, kill the thread. */
 }
@@ -558,7 +577,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->sleep_until_ticks = -1;
   t->sema = NULL;
 // --- Lab1: Task 1 ---
-
+// --- Lab1: Task 2 ---
+  t->priority_before_donate = priority;
+  list_init (&t->locks);
+  t->waiting_lock = NULL;
+// --- Lab1: Task 2 ---
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -719,6 +742,7 @@ schedule (void)
     prev = switch_threads (cur, next);
   // 切换到之前运行到这的 next thread, 为prev
   thread_schedule_tail (prev);
+  // 中断还未打开
 }
 
 /** Returns a tid to use for a new thread. */

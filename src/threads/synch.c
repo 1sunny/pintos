@@ -54,6 +54,11 @@ sema_init (struct semaphore *sema, unsigned value)
   list_init (&sema->waiters);
 }
 
+static bool
+thread_greater_priority_first (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  return list_entry(a, struct thread, elem)->priority > list_entry(b, struct thread, elem)->priority;
+}
+
 // [[[ 这个函数不能调用printf ]]]
 // TODO 注释里的interrupt handler指外中断handler还是所有handler???
 // 这个函数可能会sleep, 所以不能在interrupt handler中被调用(原因是死锁那个原因吗??intr_register_ext上的注释)
@@ -62,6 +67,7 @@ sema_init (struct semaphore *sema, unsigned value)
 /** Down or "P" operation on a semaphore. [[[ Waits for SEMA's value
    to become positive and then atomically decrements it. ]]]
 
+ 什么情况下会在中断关闭时被调用? timer_sleep中
    This function [[[ may sleep ]]], so it must not be called within an
    interrupt handler.  This function [[[ may be called with
    interrupts disabled, but if it sleeps then the next scheduled
@@ -93,6 +99,7 @@ sema_down (struct semaphore *sema)
     }
   sema->value--;
   intr_set_level (old_level);
+  // old_level什么情况下是OFF ?
 }
 
 /** Down or "P" operation on a semaphore, but only if the
@@ -129,22 +136,34 @@ sema_try_down (struct semaphore *sema)
 
    This function may be called from an interrupt handler. */
 void
-sema_up (struct semaphore *sema) 
+sema_up (struct semaphore *sema)
 {
   enum intr_level old_level;
 
   ASSERT (sema != NULL);
 
+  bool should_yield = false;
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) {
     struct thread *t = list_entry (list_pop_front(&sema->waiters),
                                    struct thread, elem);
+    if (t->priority >= thread_current()->priority) {
+      should_yield = true;
+    }
     thread_unblock (t);
     // 原始代码:
     // thread_unblock (list_entry (list_pop_front (&sema->waiters),
     //                             struct thread, elem));
   }
   sema->value++;
+
+  if (should_yield) {
+    if (intr_context()) {
+      intr_yield_on_return();
+    } else {
+      thread_yield ();
+    }
+  }
   intr_set_level (old_level);
 }
 
@@ -209,6 +228,25 @@ lock_init (struct lock *lock)
   sema_init (&lock->semaphore, 1);
 }
 
+static bool
+lock_greater_priority_first (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  return list_entry (a, struct lock, elem)->max_thread_priority > list_entry (b, struct lock, elem)->max_thread_priority;
+}
+
+static void
+thread_update_lock_based_priority (struct thread *t) {
+  ASSERT(intr_get_level() == INTR_OFF);
+
+  int max_priority = t->priority_before_donate;
+  if (!list_empty (&t->locks)) {
+    list_sort(&t->locks, lock_greater_priority_first, NULL);
+    int lock_priority = list_entry (list_front (&t->locks), struct lock, elem)->max_thread_priority;
+    if (lock_priority > max_priority)
+      max_priority = lock_priority;
+   }
+   t->priority = max_priority;
+}
+
 /** Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -216,7 +254,10 @@ lock_init (struct lock *lock)
    This function may sleep, so it must not be called within an
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
-   we need to sleep. */
+   we need to sleep.
+   函数可能会sleep, 不能在interrupt handler(应该是外中断handler吧?)中调用
+   可能调用的时候是关中断的(intq_getc, intq_putc...), 但如果sleep的话后续中断会被打开
+*/
 void
 lock_acquire (struct lock *lock)
 {
@@ -224,15 +265,37 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  struct thread *curr_thread = thread_current ();
+  struct lock *l;
+  enum intr_level old_level = intr_disable ();
+  // TODO 这里不需要关中断吗, 锁应该是线程间共享数据, 线程间共享数据按理来说应该用锁来同步, 但现在处理的本身就是锁
+  if (lock->holder != NULL && !thread_mlfqs) {
+    curr_thread->waiting_lock = lock;
+    l = lock;
+    // 如果while更新到一半,另一个线程也acquire相同的锁, [[[[[ 当然因为这个线程优先级高所以不会出现这样的情况 ]]]]]
+    // 所以感觉整个函数里不需要额外的关中断(不关依然可以通过测试),但还是关一下吧
+    while (l && curr_thread->priority > l->max_thread_priority) {
+      l->max_thread_priority = curr_thread->priority;
+      thread_update_lock_based_priority(l->holder);
+      l = l->holder->waiting_lock;
+    }
+  }
   // 为什么在这里打印要panic, 因为线程还没初始化好? 是因为会循环调用printf导致栈溢出, magic对不上
   // printf("call sema_down in lock_acquire\n");
   // become positive and then atomically decrements it
   sema_down (&lock->semaphore);
+
+  if (!thread_mlfqs) {
+    curr_thread->waiting_lock = NULL;
+    lock->max_thread_priority = curr_thread->priority;
+    list_insert_ordered(&thread_current()->locks, &lock->elem, lock_greater_priority_first, NULL);
+  }
   // 这里也会panic: // ASSERT (t->status == THREAD_RUNNING);
   lock->holder = thread_current ();
   // 这里不会,因为 schedule返回了, 看schedule中的注释
   // printf("[%s:%s:%d] called sema_down in lock_acquire\n",
   //        thread_current()->name, thread_status_names[thread_current()->status], thread_current()->priority);
+  intr_set_level (old_level);
 }
 
 /** Tries to acquires LOCK and returns true if successful or false
@@ -266,7 +329,16 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  if (!thread_mlfqs) {
+    enum intr_level old_level = intr_disable ();
+    // 从当前线程中移除这个锁
+    list_remove (&lock->elem);
+    thread_update_lock_based_priority(thread_current());
+    intr_set_level (old_level);
+  }
+
   lock->holder = NULL;
+  // 这里面应该进行一次yield感觉
   sema_up (&lock->semaphore);
 }
 
