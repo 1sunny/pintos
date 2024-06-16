@@ -41,10 +41,12 @@ test_priority_donate_multiple2 (void)
   lock_acquire (&a);
   lock_acquire (&b);
 
+  // a因为想获取锁而阻塞, 所以a应该把now优先级提高为PRI_DEFAULT + 3
   thread_create ("a", PRI_DEFAULT + 3, a_thread_func, &a);
   msg ("Main thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 3, thread_get_priority ());
 
+  // now的优先级是PRI_DEFAULT + 3, 所以c不会抢占now
   thread_create ("c", PRI_DEFAULT + 1, c_thread_func, NULL);
 
   thread_create ("b", PRI_DEFAULT + 5, b_thread_func, &b);
@@ -52,10 +54,12 @@ test_priority_donate_multiple2 (void)
        PRI_DEFAULT + 5, thread_get_priority ());
 
   lock_release (&a);
+  // 释放a后线程a依然无法拿锁, 因为now的优先级还是PRI_DEFAULT + 5
   msg ("Main thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 5, thread_get_priority ());
 
   lock_release (&b);
+  // 释放后线程b把now的线程降低为原来的PRI_DEFAULT, 按b->a->c结束
   msg ("Threads b, a, c should have just finished, in that order.");
   msg ("Main thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT, thread_get_priority ());

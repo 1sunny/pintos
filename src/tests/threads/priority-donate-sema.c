@@ -8,7 +8,14 @@
    waking up M.  H terminates, then M, then L, and finally the
    main thread.
 
-   Written by Godmar Back <gback@cs.vt.edu>. */
+   Written by Godmar Back <gback@cs.vt.edu>.
+
+ L获取lock, sema_down时阻塞(因为初始值是0)
+ M sema_down时阻塞, H 获取锁时阻塞(应该把优先级捐给 L)
+ main sema_up, 应该唤醒 L(被捐献了优先级), L 放锁, 唤醒 H,
+ H sema_up, 放锁, H 执行完, 唤醒 M, M 执行后 L执行
+
+*/
 
 #include <stdio.h>
 #include "tests/threads/tests.h"
