@@ -94,7 +94,8 @@ sema_down (struct semaphore *sema)
   while (sema->value == 0)
     {
       // TODO 对sema->waiters访问为什么不用加锁
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      // list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered(&sema->waiters, &thread_current()->elem, thread_greater_priority_first, NULL);
       thread_block (); // thread_current ()->status = THREAD_BLOCKED; schedule ();
     }
   sema->value--;
