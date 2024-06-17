@@ -600,6 +600,11 @@ alloc_frame (struct thread *t, size_t size)
   return t->stack;
 }
 
+bool
+thread_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  return list_entry(a, struct thread, elem)->priority < list_entry(b, struct thread, elem)->priority;
+}
+
 // [[[ 这个函数不能调用printf ]]]
 /** Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
@@ -618,23 +623,11 @@ next_thread_to_run (void)
     return idle_thread;
   }
   else {
-    int priority = -1;
-    struct thread *highest_priority_thread = NULL;
-    struct list_elem *to_remove = NULL;
-    struct list_elem *e;
-    for (e = list_begin (&ready_list); e != list_end (&ready_list);
-         e = list_next (e))
-    {
-      struct thread *curr = list_entry (e, struct thread, elem);
-      if (curr->priority > priority) {
-        priority = curr->priority;
-        highest_priority_thread = curr;
-        to_remove = e;
-      }
-    }
-    list_remove (to_remove);
-    ASSERT (highest_priority_thread != NULL);
-    return highest_priority_thread;
+    struct list_elem *max = list_max(&ready_list, thread_less, NULL);
+    struct thread *max_priority_thread = list_entry (max, struct thread, elem);
+    list_remove(max);
+    ASSERT (max_priority_thread != NULL);
+    return max_priority_thread;
   }
 // --- Lab1: Task 2 ---
 }

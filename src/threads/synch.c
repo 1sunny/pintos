@@ -123,11 +123,6 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
-static bool
-thread_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-  return list_entry(a, struct thread, elem)->priority < list_entry(b, struct thread, elem)->priority;
-}
-
 // [[[ 这个函数不能调用printf ]]]
 // sema_up可以被外中断handler调用, 因为不会sleep吗
 // 会通知所有waiters
@@ -229,7 +224,7 @@ lock_init (struct lock *lock)
   sema_init (&lock->semaphore, 1);
 }
 
-static bool
+bool
 lock_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   return list_entry (a, struct lock, elem)->max_thread_priority < list_entry (b, struct lock, elem)->max_thread_priority;
 }
