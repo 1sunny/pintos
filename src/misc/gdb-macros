@@ -19,6 +19,15 @@ define list_entry
     set $rc = ((struct $arg1 *) ((uint8_t *) ($arg0) - $rc))
 end
 
+define p_list_entry
+    offsetof $arg1 $arg2
+    set $rc = ((struct $arg1 *) ((uint8_t *) ($arg0) - $rc))
+    set $l = $rc
+    printf "p_list_entry: %p ", $l
+    output *$l
+    printf "\n"
+end
+
 # dump a Pintos list
 define dumplist
     set $list = $arg0
