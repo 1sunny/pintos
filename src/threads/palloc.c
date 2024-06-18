@@ -20,10 +20,17 @@
    pages, the kernel pool for everything else.  The idea here is
    that the kernel needs to have memory for its own operations
    even if user processes are swapping like mad.
+   内存池划分:
+    系统内存被分为两个主要部分:内核池和用户池.
+    用户池用于用户(虚拟)内存页,内核池则用于所有其他用途.
 
    By default, half of system RAM is given to the kernel pool and
    half to the user pool.  That should be huge overkill for the
-   kernel pool, but that's just fine for demonstration purposes. */
+   kernel pool, but that's just fine for demonstration purposes.
+   默认情况下,系统RAM的一半分配给内核池,另一半分配给用户池.
+   分配给内核池的一半内存对于内核的需求来说应该是非常充裕的,甚至可以说是超量配置.
+   但这种分配方式在演示或测试环境中是可以接受的,因为它简化了内存管理的概念展示.
+*/
 
 /** A memory pool. */
 struct pool
@@ -40,12 +47,14 @@ static void init_pool (struct pool *, void *base, size_t page_cnt,
                        const char *name);
 static bool page_from_pool (const struct pool *, void *page);
 
+// 把 1MB - init_ram_pages的所有内存平分给内核池和用户池
 /** Initializes the page allocator.  At most USER_PAGE_LIMIT
    pages are put into the user pool. */
 void
 palloc_init (size_t user_page_limit)
 {
-  /* Free memory starts at 1 MB and runs to the end of RAM. */
+  // TODO 为什么是 1MB ? 得看看之前的内存图
+  /* [[[[[ Free memory starts at 1 MB and runs to the end of RAM. ]]]]] */
   uint8_t *free_start = ptov (1024 * 1024);
   uint8_t *free_end = ptov (init_ram_pages * PGSIZE);
   size_t free_pages = (free_end - free_start) / PGSIZE;

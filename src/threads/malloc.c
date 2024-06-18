@@ -16,23 +16,40 @@
    that size.  The descriptor keeps a list of free blocks.  If
    the free list is nonempty, one of its blocks is used to
    satisfy the request.
+   内存请求和描述符(descriptor):
+    当进行内存分配请求时,请求的大小会被向上取整到最近的2的幂.
+    每个2的幂的大小(例如8字节,16字节m32字节等)都有一个对应的"descriptor".
+    每个descriptor管理一个特定大小的空闲内存块列表(free list).
+    如果空闲列表中有可用的块,就会使用其中的一个块来满足内存请求.
 
    Otherwise, a new page of memory, called an "arena", is
    obtained from the page allocator (if none is available,
    malloc() returns a null pointer).  The new arena is divided
    into blocks, all of which are added to the descriptor's free
    list.  Then we return one of the new blocks.
+   内存池(Arena):
+    如果空闲列表中没有可用的块,则会从页面分配器(page allocator)中请求一个新的[[内存页(称为"内存池"或"Arena")]]]
+    内存池会被划分成较小的块,这些块的大小由descriptor管理.
+    这些新划分的块会被添加到descriptor的空闲列表中.
+    然后返回其中的一个新块来满足内存请求.
 
    When we free a block, we add it to its descriptor's free list.
    But if the arena that the block was in now has no in-use
    blocks, we remove all of the arena's blocks from the free list
    and give the arena back to the page allocator.
+   释放内存:
+    当释放一个内存块时,这个块会被添加到它对应的descriptor的空闲列表中.
+    [[[如果内存池中的所有块都被释放,则会将整个内存池的块从空闲列表中移除,并将内存池归还给页面分配器]]]
 
    We can't handle blocks bigger than 2 kB using this scheme,
    because they're too big to fit in a single page with a
    descriptor.  We handle those by allocating contiguous pages
    with the page allocator and sticking the allocation size at
-   the beginning of the allocated block's arena header. */
+   the beginning of the allocated block's arena header.
+   大块内存分配:
+    对于超过2 KB的内存请求,无法使用上述方法处理,因为它们太大,无法与descriptor一起放入单个页面.
+    这些请求会通过页面分配器分配连续的多个页面,并在分配块的内存池头部记录分配大小.
+*/
 
 /** Descriptor. */
 struct desc
@@ -46,6 +63,7 @@ struct desc
 /** Magic number for detecting arena corruption. */
 #define ARENA_MAGIC 0x9a548eed
 
+// 一个内存池中block_size都一样
 /** Arena. */
 struct arena 
   {
@@ -73,17 +91,24 @@ malloc_init (void)
 {
   size_t block_size;
 
+  // 最小block_size是16
   for (block_size = 16; block_size < PGSIZE / 2; block_size *= 2)
     {
       struct desc *d = &descs[desc_cnt++];
       ASSERT (desc_cnt <= sizeof descs / sizeof *descs);
       d->block_size = block_size;
+      // TODO - sizeof (struct arena) 用意?
+      // 因为 a = palloc_get_multiple (0, page_cnt); arena在页最开始
       d->blocks_per_arena = (PGSIZE - sizeof (struct arena)) / block_size;
       list_init (&d->free_list);
       lock_init (&d->lock);
     }
+  // 目前还没有实际分配内存,是malloc时发现desc中free_list为空后才palloc_get_page,
+  // 然后分为block加入free_list
 }
 
+// from the kernel pool
+// 不会拆分内存块,比如需要12,分配16,多余的4不会拆出来用
 /** Obtains and returns a new block of at least SIZE bytes.
    Returns a null pointer if memory is not available. */
 void *
@@ -104,6 +129,7 @@ malloc (size_t size)
       break;
   if (d == descs + desc_cnt) 
     {
+      // 需要的内存太大,所有descriptor都不满足
       /* SIZE is too big for any descriptor.
          Allocate enough pages to hold SIZE plus an arena. */
       size_t page_cnt = DIV_ROUND_UP (size + sizeof *a, PGSIZE);
@@ -111,6 +137,7 @@ malloc (size_t size)
       if (a == NULL)
         return NULL;
 
+      // free_cnt表示需要释放的page数量
       /* Initialize the arena to indicate a big block of PAGE_CNT
          pages, and return it. */
       a->magic = ARENA_MAGIC;
@@ -153,6 +180,7 @@ malloc (size_t size)
   return b;
 }
 
+// from the kernel pool, 该块的内容将被清零
 /** Allocates and return A times B bytes initialized to zeroes.
    Returns a null pointer if memory is not available. */
 void *
@@ -185,6 +213,8 @@ block_size (void *block)
   return d != NULL ? d->block_size : PGSIZE * a->free_cnt - pg_ofs (block);
 }
 
+// 可能会在此过程中移动它
+// 使用 block null 的调用相当于 malloc(), new_size 为零的调用相当于 free()
 /** Attempts to resize OLD_BLOCK to NEW_SIZE bytes, possibly
    moving it in the process.
    If successful, returns the new block; on failure, returns a
@@ -267,6 +297,7 @@ free (void *p)
 static struct arena *
 block_to_arena (struct block *b)
 {
+  // 因为block和arena在同一个内存页,所以直接把 *b round_down
   struct arena *a = pg_round_down (b);
 
   /* Check that the arena is valid. */

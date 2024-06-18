@@ -11,6 +11,12 @@
    their permissions.  There is also a per-process Local
    Descriptor Table (LDT) but that is not used by modern
    operating systems.
+   GDT是x86架构中的一个特定结构,用于定义系统中所有进程都可能使用的段(segments)
+   每个段描述符定义了一个内存段的属性,包括基地址,段限长和访问权限等.
+   每个进程在访问内存时，必须根据段描述符中的权限规则进行访问控制.
+
+   每个进程还有一个本地描述符表(LDT),用于存储特定进程私有的段描述符.
+   然而,现代操作系统几乎不再使用LDT,而是依赖于GDT来管理所有进程的内存访问权限.
 
    Each entry in the GDT, which is known by its byte offset in
    the table, identifies a segment.  For our purposes only three
@@ -18,10 +24,18 @@
    Task-State Segment descriptors.  The former two types are
    exactly what they sound like.  The TSS is used primarily for
    stack switching on interrupts.
+   在GDT中,每个段描述符有一个字节的偏移量(byte offset),用来唯一标识每个段
+   对于大多数操作系统而言,主要关注的段类型有三种:
+    代码段(Code Segment): 包含可执行代码的段.
+    数据段(Data Segment): 包含可读写数据的段.
+    任务状态段(Task-State Segment，TSS): 主要用于处理中断时的堆栈切换.
 
    For more information on the GDT as used here, refer to
    [IA32-v3a] 3.2 "Using Segments" through 3.5 "System Descriptor
    Types". */
+
+// 段描述符结构见笔记
+
 static uint64_t gdt[SEL_CNT];
 
 /** GDT helpers. */
@@ -49,7 +63,9 @@ gdt_init (void)
      Table Register (GDTR)", 2.4.4 "Task Register (TR)", and
      6.2.4 "Task Register".  */
   gdtr_operand = make_gdtr_operand (sizeof gdt - 1, gdt);
+  // 将GDTR寄存器设置为指定的全局描述符表描述符(GDTR operand)的内存地址
   asm volatile ("lgdt %0" : : "m" (gdtr_operand));
+  // 将TR寄存器设置为指定的任务状态段(TSS)选择器
   asm volatile ("ltr %w0" : : "q" (SEL_TSS));
 }
 

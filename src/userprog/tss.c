@@ -13,6 +13,9 @@
    into the processor.  However, for various reasons including
    portability, speed, and flexibility, most x86 OSes almost
    completely ignore the TSS.  We are no exception.
+   TSS是x86特有的结构,用于定义"任务",任务是一种硬件支持的多任务处理方式.
+   虽然TSS在多任务处理方面提供了一些支持,但由于多种原因(包括可移植性,速度和灵活性),
+   大多数x86操作系统几乎完全忽略了TSS. Pintos操作系统也不例外.
 
    Unfortunately, there is one thing that can only be done using
    a TSS: stack switching for interrupts that occur in user mode.
@@ -21,6 +24,9 @@
    determine the stack to use for handling the interrupt.  Thus,
    we must create a TSS and initialize at least these fields, and
    this is precisely what this file does.
+   尽管大多数情况下忽略了TSS,但有一种情况必须使用TSS:当用户模式(ring 3)下发生中断时.
+   此时,处理器会查阅当前TSS中的ss0和esp0成员,确定处理中断时要使用的堆栈.
+   因此,我们必须创建一个TSS并初始化至少这两个字段,这正是这段代码所做的工作.
 
    When an interrupt is handled by an interrupt or trap gate
    (which applies to all interrupts we handle), an x86 processor
@@ -31,6 +37,8 @@
        place.  This is the case for interrupts that happen when
        we're running in the kernel.  The contents of the TSS are
        irrelevant for this case.
+       如果中断发生时被中断的代码与中断处理程序在同一个特权级(ring)中,则不会发生堆栈切换.
+       这种情况通常发生在内核态(ring 0)下. 对于这种情况，TSS的内容无关紧要.
 
      - If the interrupted code is in a different ring from the
        handler, then the processor switches to the stack
@@ -43,6 +51,10 @@
        scheduler switches threads, it also changes the TSS's
        stack pointer to point to the new thread's kernel stack.
        (The call is in thread_schedule_tail() in thread.c.)
+       如果被中断的代码与中断处理程序在不同的特权级,则处理器会切换到TSS中为新特权级别指定的堆栈.
+       这种情况发生在用户空间(ring 3)发生中断时.
+       此时,重要的是切换到一个未被使用的堆栈,以避免数据损坏.
+       因为我们运行在用户空间,当前进程的[[[内核堆栈是空闲的]]],所以我们可以使用它.
 
    See [IA32-v3a] 6.2.1 "Task-State Segment (TSS)" for a
    description of the TSS.  See [IA32-v3a] 5.12.1 "Exception- or
@@ -84,6 +96,7 @@ tss_init (void)
      ones we initialize. */
   tss = palloc_get_page (PAL_ASSERT | PAL_ZERO);
   tss->ss0 = SEL_KDSEG;
+  // TODO bitmap是干啥的
   tss->bitmap = 0xdfff;
   tss_update ();
 }
@@ -96,11 +109,13 @@ tss_get (void)
   return tss;
 }
 
-/** Sets the ring 0 stack pointer in the TSS to point to the end
+/** Sets the [[[ ring 0 stack pointer ]]] in the TSS to point to the end
    of the thread stack. */
 void
 tss_update (void) 
 {
   ASSERT (tss != NULL);
+  // 将esp0指向当前线程的地址末尾,一个线程只有一个Page大小
+  // TODO 为什么指向末尾,内核栈从末尾开始吗?
   tss->esp0 = (uint8_t *) thread_current () + PGSIZE;
 }

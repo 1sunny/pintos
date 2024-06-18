@@ -44,7 +44,7 @@ static inline uintptr_t pd_no (const void *va) {
    Pintos reference guide chapter, or [IA32-v3a] 3.7.6
    "Page-Directory and Page-Table Entries".
 
-   PDEs and PTEs share a common format:
+   [[[[[ PDEs and PTEs share a common format: ]]]]]
 
    31                                 12 11                     0
    +------------------------------------+------------------------+
@@ -70,7 +70,7 @@ static inline uintptr_t pd_no (const void *va) {
 /** Returns a PDE that points to page table PT. */
 static inline uint32_t pde_create (uint32_t *pt) {
   ASSERT (pg_ofs (pt) == 0);
-  return vtop (pt) | PTE_U | PTE_P | PTE_W;
+  return vtop (pt) | PTE_U | PTE_P | PTE_W; // user, present, write
 }
 
 /** Returns a pointer to the page table that page directory entry
@@ -97,6 +97,7 @@ static inline uint32_t pte_create_user (void *page, bool writable) {
   return pte_create_kernel (page, writable) | PTE_U;
 }
 
+// 根据page table entry返回对应page的内核虚拟地址
 /** Returns a pointer to the page that page table entry PTE points
    to. */
 static inline void *pte_get_page (uint32_t pte) {

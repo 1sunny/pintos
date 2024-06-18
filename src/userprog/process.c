@@ -21,6 +21,8 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+// run_task会调用process_execute
+// new thread可能在process_execute返回前被调度运行
 /** Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -56,6 +58,7 @@ start_process (void *file_name_)
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
+  // TODO 为什么可以都用 SEL_UDSEG
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;

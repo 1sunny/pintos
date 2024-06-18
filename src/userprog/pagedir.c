@@ -9,6 +9,7 @@
 static uint32_t *active_pd (void);
 static void invalidate_pagedir (uint32_t *);
 
+// 创建新的page directory,包含了内核虚拟地址的映射,不包含用户虚拟地址
 /** Creates a new page directory that has mappings for kernel
    virtual addresses, but none for user virtual addresses.
    Returns the new page directory, or a null pointer if memory
@@ -22,6 +23,7 @@ pagedir_create (void)
   return pd;
 }
 
+// 销毁page directory和里面所有的映射
 /** Destroys page directory PD, freeing all the pages it
    references. */
 void
@@ -88,7 +90,10 @@ lookup_page (uint32_t *pd, const void *vaddr, bool create)
 /** Adds a mapping in page directory PD from user virtual page
    UPAGE to the physical frame identified by kernel virtual
    address KPAGE.
+   向 pd 添加从 user page `upage` 到由内核虚拟地址 `kpage` 标识的 frame 的映射
+   UPAGE 必须没映射过
    UPAGE must not already be mapped.
+   KPAGE 是来自 user pool 的虚拟地址
    KPAGE should probably be a page obtained from the user pool
    with palloc_get_page().
    If WRITABLE is true, the new page is read/write;
@@ -214,6 +219,7 @@ pagedir_set_accessed (uint32_t *pd, const void *vpage, bool accessed)
     }
 }
 
+// pd是虚拟地址
 /** Loads page directory PD into the CPU's page directory base
    register. */
 void
@@ -243,7 +249,11 @@ active_pd (void)
   return ptov (pd);
 }
 
-/** Seom page table changes can cause the CPU's translation
+/**
+   某些页表更改会导致 CPU 的translation lookaside buffer(TLB) 与页表不同步
+   出现这种情况时,我们必须重新激活 TLB,使其"失效"
+
+   Some page table changes can cause the CPU's translation
    lookaside buffer (TLB) to become out-of-sync with the page
    table.  When this happens, we have to "invalidate" the TLB by
    re-activating it.
