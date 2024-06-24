@@ -6,7 +6,8 @@
 #### Switches from CUR, which must be the running thread, to NEXT,
 #### [[[ which must also be running switch_threads(), returning CUR in
 #### NEXT's context. ]]]
-####
+#### 这个函数works假设我们要切换到的那个thread也在running switch_threads,只是运行到switch_threads被切换了
+#### 所以只需要保存少部分寄存器到栈上(TODO 为什么只需要保存少部分?)
 #### This function works by assuming that the thread we're switching
 #### into is also running switch_threads().  Thus, all it has to do is
 #### preserve a few registers on the stack, [[[[[[[[[[ then switch stacks ]]]]]]]]]] and
@@ -34,6 +35,21 @@ switch_threads:
 .globl thread_stack_ofs
 	mov thread_stack_ofs, %edx
 
+// struct switch_threads_frame
+//  {
+//    uint32_t edi;               /**<  0: Saved %edi. */
+//    uint32_t esi;               /**<  4: Saved %esi. */
+//    uint32_t ebp;               /**<  8: Saved %ebp. */
+//    uint32_t ebx;               /**< 12: Saved %ebx. */
+//    void (*eip) (void);         /**< 16: Return address. */
+//    struct thread *cur;         /**< 20: switch_threads()'s CUR argument. */
+//    struct thread *next;        /**< 24: switch_threads()'s NEXT argument. */
+//  };
+// struct thread *switch_threads (struct thread *cur, struct thread *next);
+// SWITCH_CUR = edi, esi, ebp, ebx, return address, cur, next
+//             ^
+//            esp
+// 可以看 struct switch_threads_frame
 # /** Offsets used by switch.S. */
 #  #define SWITCH_CUR      20
 #  #define SWITCH_NEXT     24
@@ -60,6 +76,7 @@ switch_threads:
         ret
 .endfunc
 
+##################################### [[[[[ 这是内核栈 ]]]]] ####################
 ##                   4 kB +---------------------------------+
 ##                        |               aux               |
 ##                        |            function             |

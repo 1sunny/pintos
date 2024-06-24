@@ -346,6 +346,7 @@ parse_options (char **argv)
   return argv;
 }
 
+// run_actions中actions: {"run", 2, run_task},
 /** Runs the task specified in ARGV[1]. */
 static void
 run_task (char **argv)

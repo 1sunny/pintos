@@ -102,10 +102,11 @@ struct thread
 // Every thread has its own stack to keep track of its state.
 // When the thread is running, the CPU's stack pointer register tracks the top of the stack
 // and this member is unused.
+// TODO 哪行代码保存的? switch.S: movl %esp, (%eax,%edx,1)
 // But when the CPU switches to another thread, this member saves the thread's stack pointer.
 // No other members are needed to save the thread's registers,
-// because the other registers that must be saved are saved on the stack(TODO 什么stack).
-// TODO 为什么sp不能保存在栈上?
+// because the other registers that must be saved are saved on the stack(TODO 什么stack: 内核栈吧).
+// TODO 为什么sp不能保存在switch_threads_frame(内核栈)上?
 // When an interrupt occurs, whether in the kernel or a user program,
 // an struct intr_frame is pushed onto the stack.
 // When the interrupt occurs in a user program,

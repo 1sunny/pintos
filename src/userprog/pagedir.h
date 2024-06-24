@@ -1,6 +1,14 @@
 #ifndef USERPROG_PAGEDIR_H
 #define USERPROG_PAGEDIR_H
 
+// 32位虚拟地址保存20位page number和12位页偏移
+//                31               12 11        0
+//               +-------------------+-----------+
+//               |    Page Number    |   Offset  |
+//               +-------------------+-----------+
+//                        Virtual Address
+
+
 // 页表接口使用 uint32_t* 表示页表,因为这样可以方便访问其内部结构
 
 
@@ -11,6 +19,10 @@
 // 1.虚拟地址(31-22)表示page directory的物理地址
 // 2.虚拟地址(21-12)表示page table的物理地址
 // 3.虚拟地址(11-0)表示偏移
+
+// 先通过 Page Directory Index 找到 Page Table 的地址,
+// 再通过 Page Table Index 找到 Data Page 的地址,
+// 再加上 Page Offset 得到实际物理地址.
 
 /*
   31                  22 21                  12 11                   0
@@ -42,6 +54,7 @@
                            /                      /
  */
 
+// Page Directory Entry和Page Table Entry结构一样, 只是Physical Address含义不同
 // Page Table Entry Format
 /*
   31                                   12 11 9      6 5     2 1 0

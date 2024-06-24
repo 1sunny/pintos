@@ -4,11 +4,16 @@
 
 /* [[[ Main interrupt entry point. ]]]
 
+// 内部或外部中断从intrNN_stub开始,
+// 把 struct intr_frame中的frame_pointer, error_code, and vec_no push到栈上,
+// 然后跳转到这里
    An internal or external interrupt starts in one of the
    intrNN_stub routines, which push the `struct intr_frame'
    frame_pointer, error_code, and vec_no members on the stack,
    then jump here.
 
+// TODO 这里的stack是用户栈还是内核栈? 内核栈和用户栈在哪里切换的?
+//
    We save the rest of the `struct intr_frame' members to the
    stack, set up some registers as needed by the kernel, and then
    call intr_handler(), which actually handles the interrupt.
@@ -63,13 +68,15 @@ intr_exit:
            frame_pointer members. */
 	addl $12, %esp
 
+// struct intr_frame:
+// .....
 //     void (*eip) (void);         /**< Next instruction to execute. */
 //     uint16_t cs, :16;           /**< Code segment for eip. */
 //     uint32_t eflags;            /**< Saved CPU flags. */
 //     void *esp;                  /**< Saved stack pointer. */
 //     uint16_t ss, :16;           /**< Data segment for esp. */
 
-// IRET指令会执行以下操作:
+// IRET指令会执行以下操作(从 stack 中弹出):
 //  恢复EIP,CS,EFLAGS
 //  如果在保护模式下并且使用特权级转换(如从内核态返回到用户态),
 //  IRET指令还会恢复SS和ESP
@@ -113,9 +120,10 @@ eip
 ----------
 CPU's error_code | CPU在某些中断时会在这里放一个error_code,但是我们希望这里是frame_pointer
 ----------
-frame_pointer
-error_code
-vec_no
+frame_pointer (intr_stubs 保存的)
+error_code    (intr_stubs 保存的)
+vec_no        (intr_stubs 保存的)
+// 下面这些是 intr_entry push 的
 ...
 segment register
 ...
@@ -136,6 +144,8 @@ intr_stubs:
 	pushl %ebp;                             \
 	pushl $0
 
+// 因为 CPU 已经 push 了一个 error code, 这里先用重复 push 一个 error code,
+// 然后把 CPU 的 error code 用 ebp 覆盖
 /* This implements steps 1 and 2, described above, in the case
    where the CPU already pushed an error code. */
 #define REAL                                    \

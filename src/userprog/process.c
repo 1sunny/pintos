@@ -28,12 +28,12 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
 
-  // TODO what?
+  // TODO 为什么有race啊?
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   // 从内核池获取页面
@@ -45,10 +45,11 @@ process_execute (const char *file_name)
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (fn_copy);
   return tid;
 }
 
+// TODO 这个函数运行时算内核线程吧?
 /** A thread function that loads a user process and starts it
    running. */
 static void
@@ -60,7 +61,10 @@ start_process (void *file_name_)
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
-  // TODO 为什么可以都用 SEL_UDSEG
+  // 模拟intr_entry中保存到intr_frame的寄存器
+  // TODO 但为什么只设置段寄存器 ?
+  // load 中设置了 eip 和 esp
+  // TODO 为什么可以都用 SEL_UDSEG ?
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   // 中断开启
@@ -72,8 +76,10 @@ start_process (void *file_name_)
   if (!success) 
     thread_exit ();
 
+  // load中调用setup设置好了esp指向PHY_BASE
+
   // intr_frame 是在内核栈上还是用户栈?
-  // 模拟从 interrupt 返回来启动用户线程
+  // 模拟从 interrupt 返回来启动用户线程(TODO 但是为什么要这样呢?)
   // 因为 intr_exit(intr-stubs.S) 按 struct intr_frame 结构处理栈上的数据
   // 我们把 esp 指向我们的 stack frame 并跳转到 intr_exit
   /* Start the user process by simulating a return from an
@@ -212,6 +218,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
+// 将一个ELF可执行文件加载到当前线程的地址空间中,并设置该可执行文件的入口点和初始栈指针
 /** Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
@@ -443,12 +450,14 @@ setup_stack (void **esp)
   uint8_t *kpage;
   bool success = false;
 
+  // TODO 为啥叫 kpage ? 不是从 user pool 获取的吗
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         *esp = PHYS_BASE;
+      // TODO 为啥不设置 ebp 呢 ?
       else
         palloc_free_page (kpage);
     }
