@@ -25,7 +25,7 @@
    we must create a TSS and initialize at least these fields, and
    this is precisely what this file does.
    尽管大多数情况下忽略了TSS,但有一种情况必须使用TSS:当用户模式(ring 3)下发生中断时.
-   此时,处理器会查阅当前TSS中的ss0和esp0成员,确定处理中断时要使用的堆栈.
+   此时,处理器会查阅当前TSS中的ss0和esp0成员,确定处理中断时要使用的堆栈. (也就是内核栈?)
    因此,我们必须创建一个TSS并初始化至少这两个字段,这正是这段代码所做的工作.
 
    When an interrupt is handled by an interrupt or trap gate

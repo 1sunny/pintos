@@ -33,8 +33,10 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+  // TODO what?
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
+  // 从内核池获取页面
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
@@ -61,6 +63,7 @@ start_process (void *file_name_)
   // TODO 为什么可以都用 SEL_UDSEG
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
+  // 中断开启
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
@@ -69,6 +72,10 @@ start_process (void *file_name_)
   if (!success) 
     thread_exit ();
 
+  // intr_frame 是在内核栈上还是用户栈?
+  // 模拟从 interrupt 返回来启动用户线程
+  // 因为 intr_exit(intr-stubs.S) 按 struct intr_frame 结构处理栈上的数据
+  // 我们把 esp 指向我们的 stack frame 并跳转到 intr_exit
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -117,6 +124,7 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  // printf ("%s: exit(%d)\n", cur->name, cur->status);
 }
 
 /** Sets up the CPU for running user code in the current
