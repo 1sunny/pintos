@@ -28,34 +28,47 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name)
+process_execute (const char *args)
 {
-  char *fn_copy;
+  char *args_copy;
   tid_t tid;
 
   // TODO 为什么有race啊?
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   // 从内核池获取页面
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  args_copy = palloc_get_page (0);
+  if (args_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (args_copy, args, PGSIZE);
 
+  char *save_ptr = args_copy;
+  char *file_name = strtok_r(args_copy, " ", &save_ptr);
+  printf("[process_execute] file_name: %s\n", file_name);
+
+  // TODO 这是args_copy的file_name后面已经被添加了 '\0'
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, args_copy);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy);
+    palloc_free_page (args_copy);
   return tid;
+}
+
+static void push_uint32(void *esp, uint32_t v) {
+  esp -= 4;
+  *(uint32_t *)esp = v;
 }
 
 // TODO 这个函数运行时算内核线程吧?
 /** A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *args)
 {
-  char *file_name = file_name_;
+  char *file_name = args;
+
+  args += strlen(args) + 1;
+
   struct intr_frame if_;
   bool success;
 
@@ -72,11 +85,39 @@ start_process (void *file_name_)
   success = load (file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
+  if (!success)
     thread_exit ();
 
-  // load中调用setup设置好了esp指向PHY_BASE
+  // load中调用setup_stack设置好了esp指向PHY_BASE
+  ASSERT(if_.esp == PHYS_BASE);
+
+  int argc = 0;
+  char *argv[65]; // 可以传递给内核的命令行参数不超过 128 字节: 128/2+1=65
+  char *save_ptr = args;
+  char *arg;
+  while ((arg = strtok_r (NULL, " ", &save_ptr)) != NULL) {
+    size_t len = strlen(arg) + 1;
+    if_.esp -= len;
+    memcpy(if_.esp, arg, len);
+    argv[argc++] = if_.esp;
+    printf("argv[%d]: %s\n", argc-1, argv[argc-1]);
+  }
+
+  palloc_free_page (file_name);
+
+  if_.esp = (void *)ROUND_DOWN((uint32_t)if_.esp, 4);
+  // 0
+  push_uint32(if_.esp, 0);
+  // argv[argc-1] ... argv[0]
+  for (int i = argc-1; i >= 0; i--) {
+    push_uint32(if_.esp, (uint32_t)argv[i]);
+  }
+  // argv
+  push_uint32(if_.esp, (uint32_t)if_.esp);
+  // argc
+  push_uint32(if_.esp, argc);
+  // return address 0
+  push_uint32(if_.esp, 0);
 
   // intr_frame 是在内核栈上还是用户栈?
   // 模拟从 interrupt 返回来启动用户线程(TODO 但是为什么要这样呢?)
@@ -92,6 +133,9 @@ start_process (void *file_name_)
   NOT_REACHED ();
 }
 
+// 等待TID die然后返回exit status
+// -1: 该TID被kernel终止
+// -1: TID invalid或者不是当前进程的子进程, 或者已经为这个TID调用过process_wait了
 /** Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
    exception), returns -1.  If TID is invalid or if it was not a
