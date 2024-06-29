@@ -47,16 +47,17 @@ static void init_pool (struct pool *, void *base, size_t page_cnt,
                        const char *name);
 static bool page_from_pool (const struct pool *, void *page);
 
-// 把 1MB - init_ram_pages的所有内存平分给内核池和用户池
+// 把 1MB - init_ram_pages的所有(虚拟)内存平分给内核池和用户池
 /** Initializes the page allocator.  At most USER_PAGE_LIMIT
    pages are put into the user pool. */
 void
 palloc_init (size_t user_page_limit)
 {
-  // TODO 为什么是 1MB ? 得看看之前的内存图
+  // TODO 为什么是 1MB ? 得看看之前的内存图, 好像是留给BIOS了
   /* [[[[[ Free memory starts at 1 MB and runs to the end of RAM. ]]]]] */
   uint8_t *free_start = ptov (1024 * 1024);
   uint8_t *free_end = ptov (init_ram_pages * PGSIZE);
+  // 所以pool中是虚拟地址
   size_t free_pages = (free_end - free_start) / PGSIZE;
   size_t user_pages = free_pages / 2;
   size_t kernel_pages;
@@ -70,6 +71,7 @@ palloc_init (size_t user_page_limit)
              user_pages, "user pool");
 }
 
+// TODO 这个是返回物理地址还是虚拟地址? 虚拟地址
 /** Obtains and returns a group of PAGE_CNT contiguous free pages.
    If PAL_USER is set, the pages are obtained from the user pool,
    otherwise from the kernel pool.  If PAL_ZERO is set in FLAGS,

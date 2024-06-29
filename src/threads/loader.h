@@ -9,6 +9,15 @@
 /** Physical address of kernel base. */
 #define LOADER_KERN_BASE 0x20000       /**< 128 kB. */
 
+// 创建基本页表:
+// 加载程序(loader)创建一个基本的页表,用于内存管理.
+
+// 映射虚拟内存的前64 MB:
+// 页表将从虚拟地址0开始的64 MB内存直接映射到相同的物理地址. 这意味着虚拟地址0到64 MB之间的内存直接对应于物理地址0到64 MB之间的内存.
+
+// 映射从虚拟地址 LOADER_PHYS_BASE 开始的内存:
+// 页表还将从虚拟地址 LOADER_PHYS_BASE(默认为0xc0000000,即3 GB)开始的虚拟内存映射到相同的物理地址. 这意味着从虚拟地址 LOADER_PHYS_BASE 开始的内存映射到物理内存的起始位置.
+
 // Next, the loader creates a basic page table.
 // This page table maps the 64 MB at the base of virtual memory
 // (starting at virtual address 0) directly to the identical physical addresses.
@@ -39,6 +48,18 @@
 #ifndef __ASSEMBLER__
 #include <stdint.h>
 
+// 获取内存大小:
+// 启动代码的第一任务是获取机器的内存大小.
+// 这是通过向 BIOS 请求 PC 的内存大小来实现的.
+
+// BIOS 功能限制:
+// 最简单的 BIOS 功能只能检测到最多 64 MB 的 RAM.
+// 因此,这也是 Pintos 操作系统实际能支持的最大内存大小.
+
+// 内存大小存储:
+// 该功能将内存大小以页(pages)为单位存储在全局变量 init_ram_pages 中
+
+// TODO 在哪设置的?
 //  The startup code's first task is actually to obtain the machine's memory size,
 //  by asking the BIOS for the PC's memory size.
 //  The simplest BIOS function to do this can only detect up to 64 MB of RAM,

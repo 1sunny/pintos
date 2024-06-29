@@ -18,7 +18,7 @@
 
 // 1.虚拟地址(31-22)表示page directory的物理地址
 // 2.虚拟地址(21-12)表示page table的物理地址
-// 3.虚拟地址(11-0)表示偏移
+// 3.虚拟地址(11-0)表示偏移,因为一个页4KB,所以12位
 
 // 先通过 Page Directory Index 找到 Page Table 的地址,
 // 再通过 Page Table Index 找到 Data Page 的地址,

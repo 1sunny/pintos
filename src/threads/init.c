@@ -216,6 +216,8 @@ bss_init (void)
   memset (&_start_bss, 0, &_end_bss - &_start_bss);
 }
 
+// 把所有可用的内存页都映射到了init_page_dir(里面只有内核的页表映射)
+// 只是往init_page_dir中添加了映射
 /** Populates the base page directory and page table with the
    kernel virtual mapping, and then sets up the CPU to use the
    new page directory.  Points init_page_dir to the page
@@ -229,6 +231,9 @@ paging_init (void)
 
   pd = init_page_dir = palloc_get_page (PAL_ASSERT | PAL_ZERO);
   pt = NULL;
+  // 相当于只是
+  // init_ram_pages=99, page_used_for_init_page_dir=1
+  int page_used_for_init_page_dir = 0;
   for (page = 0; page < init_ram_pages; page++)
     {
       uintptr_t paddr = page * PGSIZE;
@@ -239,19 +244,23 @@ paging_init (void)
 
       if (pd[pde_idx] == 0)
         {
+          page_used_for_init_page_dir++;
           pt = palloc_get_page (PAL_ASSERT | PAL_ZERO);
           pd[pde_idx] = pde_create (pt);
         }
 
+      // 添加映射 vaddr -> 它的物理地址(vtop(vaddr))
       pt[pte_idx] = pte_create_kernel (vaddr, !in_kernel_text);
     }
-
+  printf("init_ram_pages: %d, page_used_for_init_page_dir: %d\n", init_ram_pages, page_used_for_init_page_dir);
+  // TODO 相当于之前都是在物理内存上? 之前也是虚拟内存,是loader创建的临时页表(把物理内存映射到了3G开始的地方)
   /* Store the physical address of the page directory into CR3
      aka PDBR (page directory base register).  This activates our
      new page tables immediately.  See [IA32-v2a] "MOV--Move
      to/from Control Registers" and [IA32-v3a] 3.7.5 "Base Address
      of the Page Directory". */
   asm volatile ("movl %0, %%cr3" : : "r" (vtop (init_page_dir)));
+  // TODO 这一行后会page fault吗? 应该不会吧,之前映射到LOADER_PHYS_BASE开始的,现在也在
 }
 
 /** Breaks the kernel command line into words and returns them as
