@@ -67,8 +67,6 @@ start_process (void *args)
 {
   char *file_name = args;
 
-  args += strlen(args) + 1;
-
   struct intr_frame if_;
   bool success;
 
@@ -88,6 +86,8 @@ start_process (void *args)
   /* If load failed, quit. */
   if (!success)
     thread_exit ();
+
+  ((char*)args)[strlen(args)] = ' ';
 
   // load中调用setup_stack设置好了esp指向PHY_BASE
   ASSERT(if_.esp == PHYS_BASE);
