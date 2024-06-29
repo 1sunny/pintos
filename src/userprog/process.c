@@ -54,9 +54,9 @@ process_execute (const char *args)
   return tid;
 }
 
-static void push_uint32(void *esp, uint32_t v) {
-  esp -= 4;
-  *(uint32_t *)esp = v;
+static void push_uint32(void **esp, uint32_t v) {
+  *esp -= 4;
+  *((uint32_t *)(*esp)) = v;
 }
 
 // TODO 这个函数运行时算内核线程吧?
@@ -82,6 +82,7 @@ start_process (void *args)
   if_.cs = SEL_UCSEG;
   // 中断开启
   if_.eflags = FLAG_IF | FLAG_MBS;
+  // load中会active pagedir
   success = load (file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
@@ -93,6 +94,8 @@ start_process (void *args)
 
   int argc = 0;
   char *argv[65]; // 可以传递给内核的命令行参数不超过 128 字节: 128/2+1=65
+  // TODO 页表切换了 为什么还能直接访问args地址,初始的init_page_dir包含哪些
+  // args: 0xc10900c这个是包含在init_page_dir里的
   char *save_ptr = args;
   char *arg;
   while ((arg = strtok_r (NULL, " ", &save_ptr)) != NULL) {
@@ -102,22 +105,22 @@ start_process (void *args)
     argv[argc++] = if_.esp;
     printf("argv[%d]: %s\n", argc-1, argv[argc-1]);
   }
-
+// TODO 虽然现在页表切换了, 但file_name=0xc109000是内核中的地址, 可以不同的内核线程来释放?
   palloc_free_page (file_name);
 
   if_.esp = (void *)ROUND_DOWN((uint32_t)if_.esp, 4);
   // 0
-  push_uint32(if_.esp, 0);
+  push_uint32(&if_.esp, 0);
   // argv[argc-1] ... argv[0]
   for (int i = argc-1; i >= 0; i--) {
-    push_uint32(if_.esp, (uint32_t)argv[i]);
+    push_uint32(&if_.esp, (uint32_t)argv[i]);
   }
   // argv
-  push_uint32(if_.esp, (uint32_t)if_.esp);
+  push_uint32(&if_.esp, (uint32_t)if_.esp);
   // argc
-  push_uint32(if_.esp, argc);
+  push_uint32(&if_.esp, argc);
   // return address 0
-  push_uint32(if_.esp, 0);
+  push_uint32(&if_.esp, 0);
 
   // intr_frame 是在内核栈上还是用户栈?
   // 模拟从 interrupt 返回来启动用户线程(TODO 但是为什么要这样呢?)
