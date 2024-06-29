@@ -136,6 +136,7 @@ struct thread
     struct list locks;
     struct lock *waiting_lock;
     // --- Lab1: Task 2 ---
+    int exit_code;
 };
 
 /** If false (default), use round-robin scheduler.

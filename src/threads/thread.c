@@ -684,6 +684,7 @@ thread_schedule_tail (struct thread *prev)
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
+      // 释放这个内核线程对应的页(包括了thread结构体)
       palloc_free_page (prev);
     }
 }

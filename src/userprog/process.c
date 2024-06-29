@@ -44,7 +44,7 @@ process_execute (const char *args)
 
   char *save_ptr = args_copy;
   char *file_name = strtok_r(args_copy, " ", &save_ptr);
-  printf("[process_execute] file_name: %s\n", file_name);
+  // printf("[process_execute] file_name: %s\n", file_name);
 
   // TODO 这是args_copy的file_name后面已经被添加了 '\0'
   /* Create a new thread to execute FILE_NAME. */
@@ -103,7 +103,7 @@ start_process (void *args)
     if_.esp -= len;
     memcpy(if_.esp, arg, len);
     argv[argc++] = if_.esp;
-    printf("argv[%d]: %s\n", argc-1, argv[argc-1]);
+    // printf("argv[%d]: %s\n", argc-1, argv[argc-1]);
   }
 // TODO 虽然现在页表切换了, 但file_name=0xc109000是内核中的地址, 可以不同的内核线程来释放?
   palloc_free_page (file_name);
@@ -151,6 +151,14 @@ start_process (void *args)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  int cnt = 0;
+  for (;;) {
+    if (cnt > 5000) {
+      break;
+    }
+    cnt++;
+    thread_yield();
+  }
   return -1;
 }
 
@@ -177,7 +185,7 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  // printf ("%s: exit(%d)\n", cur->name, cur->status);
+  printf ("%s: exit(%d)\n", cur->name, cur->exit_code);
 }
 
 /** Sets up the CPU for running user code in the current
