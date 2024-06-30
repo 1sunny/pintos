@@ -2,15 +2,21 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <threads/vaddr.h>
+#include <filesys/filesys.h>
+#include <filesys/file.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "process.h"
+#include "threads/malloc.h"
 
 static void syscall_handler (struct intr_frame *);
+
+static struct lock filesys_lock;
 
 void
 syscall_init (void) 
 {
+  lock_init(&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -108,6 +114,67 @@ syscall_wait(struct intr_frame *f) {
 }
 
 static void
+syscall_create(struct intr_frame *f) {
+  char *file_name = get_arg_str(f, 1);
+  int initial_size = get_arg_int(f, 2);
+  lock_acquire(&filesys_lock);
+  f->eax = filesys_create(file_name, initial_size);
+  lock_release(&filesys_lock);
+}
+
+static void
+syscall_remove(struct intr_frame *f) {
+  char *file = get_arg_str(f, 1);
+  lock_acquire(&filesys_lock);
+  f->eax = filesys_remove(file);
+  lock_release(&filesys_lock);
+}
+
+static void
+syscall_open(struct intr_frame *f) {
+  char *file_name = get_arg_str(f, 1);
+
+  struct thread *curr = thread_current();
+  int fd = curr->next_fd;
+  curr->next_fd++;
+  struct open_file *of = malloc(sizeof(struct open_file));
+  of->fd = fd;
+
+  lock_acquire(&filesys_lock);
+  struct file *file = filesys_open(file_name);
+  lock_release(&filesys_lock);
+
+  if (file) {
+    of->file = file;
+    list_push_back(&curr->open_file_list, &of->elem);
+    f->eax = fd;
+  } else {
+    free(of);
+    f->eax = -1;
+  }
+}
+
+static void
+syscall_filesize(struct intr_frame *f) {
+  int fd = get_arg_int(f, 1);
+  struct thread *curr = thread_current();
+
+  int size = -1;
+
+  struct list_elem *e;
+  for (e = list_begin (&curr->open_file_list); e != list_end (&curr->open_file_list); e = list_next (e)) {
+    struct open_file *entry = list_entry(e, struct open_file, elem);
+    if (entry->fd == fd) {
+      lock_acquire(&filesys_lock);
+      size = file_length(entry->file);
+      lock_release(&filesys_lock);
+      break;
+    }
+  }
+  f->eax = size;
+}
+
+static void
 syscall_write(struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
   char *buf = get_arg_str(f, 2);
@@ -133,6 +200,16 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_WAIT:
       syscall_wait(f);
       break;
+    case SYS_CREATE:
+      syscall_create(f);
+      break;
+    case SYS_REMOVE:
+      syscall_remove(f);
+    case SYS_OPEN:
+      syscall_open(f);
+      break;
+    case SYS_FILESIZE:
+      syscall_filesize(f);
     case SYS_WRITE:
       syscall_write(f);
       break;

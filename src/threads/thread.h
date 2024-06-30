@@ -42,6 +42,12 @@ struct child_info {
 };
 // --- Lab2: Task 4 ---
 
+struct open_file {
+    struct file *file;
+    int fd;
+    struct list_elem elem;
+};
+
 /** Thread priorities. */
 #define PRI_MIN 0                       /**< Lowest priority. */
 #define PRI_DEFAULT 31                  /**< Default priority. */
@@ -156,6 +162,8 @@ struct thread
     struct semaphore exec_sema; // 执行exec时,child通过这个唤醒自己
     int exec_result;
     // --- Lab2: Task 4 ---
+    int next_fd;
+    struct list open_file_list;
 };
 
 /** If false (default), use round-robin scheduler.

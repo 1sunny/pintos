@@ -389,6 +389,11 @@ thread_exit (void)
     curr->self_in_parent_child_list->child_thread = NULL;
   }
 
+  for (e = list_begin (&curr->open_file_list); e != list_end (&curr->open_file_list); ) {
+    struct open_file *entry = list_entry(e, struct open_file, elem);
+    e = list_next (e);
+    free(entry);
+  }
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
@@ -628,6 +633,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->waiting_tid = TID_ERROR;
   sema_init(&t->wait_sema, 0);
 // --- Lab2: Task 4 ---
+  t->next_fd = 2;
+  list_init(&t->open_file_list);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
