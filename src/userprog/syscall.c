@@ -122,10 +122,11 @@ syscall_write(struct intr_frame *f) {
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  int syscall_num = *(int *)f->esp;
+  int syscall_num = get_arg_int(f, 0);
   switch (syscall_num) {
     case SYS_EXIT:
       syscall_exit(f);
+      break;
     case SYS_EXEC:
       syscall_exec(f);
       break;
