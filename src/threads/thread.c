@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <filesys/file.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -392,6 +393,7 @@ thread_exit (void)
   for (e = list_begin (&curr->open_file_list); e != list_end (&curr->open_file_list); ) {
     struct open_file *entry = list_entry(e, struct open_file, elem);
     e = list_next (e);
+    file_close(entry->file);
     free(entry);
   }
   /* Remove thread from all threads list, set our status to dying,
