@@ -1,6 +1,7 @@
 #include <syscall.h>
 #include "../syscall-nr.h"
 
+// int $0x30
 // addl $4, %%esp: 移除之前压入的系统调用号 NUMBER
 // : "=a" (retval): 输出操作数约束, "=a" 表示将系统调用的返回值存入 eax 寄存器, 并将其赋值给 retval 变量
 // : [number] "i" (NUMBER): 输入操作数约束. [number]是占位符, "i" 表示 NUMBER 是一个立即数.

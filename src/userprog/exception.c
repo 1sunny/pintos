@@ -11,6 +11,9 @@ static long long page_fault_cnt;
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 
+// 注册了不同的中断处理程序以处理可能由用户程序引发的各种异常(exceptions).
+// 在一个实际的Unix-like操作系统中,这些异常通常会以信号的形式传递给用户进程,
+// 但在这里,异常会直接终止用户进程.
 /** Registers handlers for interrupts that can be caused by user
    programs.
 
@@ -29,6 +32,8 @@ static void page_fault (struct intr_frame *);
 void
 exception_init (void) 
 {
+  // 用户可以显式触发的异常: 对于这些异常,设置 DPL==3(Descriptor Privilege Level),
+  // 这意味着用户程序被允许通过这些指令引发异常.
   /* These exceptions can be raised explicitly by a user program,
      e.g. via the INT, INT3, INTO, and BOUND instructions.  Thus,
      we set DPL==3, meaning that user programs are allowed to
@@ -38,6 +43,8 @@ exception_init (void)
   intr_register_int (5, 3, INTR_ON, kill,
                      "#BR BOUND Range Exceeded Exception");
 
+  // 用户不能显式触发的异常: 这些异常设置 DPL==0,阻止用户进程通过 INT 指令显式引发这些异常.
+  // 然而,这些异常仍然可以被间接引发,例如,通过除零引发 #DE(Divide Error).
   /* These exceptions have DPL==0, preventing user processes from
      invoking them via the INT instruction.  They can still be
      caused indirectly, e.g. #DE can be caused by dividing by
@@ -54,6 +61,8 @@ exception_init (void)
   intr_register_int (19, 0, INTR_ON, kill,
                      "#XF SIMD Floating-Point Exception");
 
+  // 页面错误异常: 页面错误异常需要特别处理,因为页面错误地址存储在 CR2 寄存器中,且需要保护这个地址.
+  // 因此，页面错误处理程序会在中断被禁用的情况下运行。
   /* Most exceptions can be handled with interrupts turned on.
      We need to disable interrupts for page faults because the
      fault address is stored in CR2 and needs to be preserved. */
@@ -89,6 +98,7 @@ kill (struct intr_frame *f)
       printf ("%s: dying due to interrupt %#04x (%s).\n",
               thread_name (), f->vec_no, intr_name (f->vec_no));
       intr_dump_frame (f);
+      thread_current()->exit_code = -1;
       thread_exit (); 
 
     case SEL_KCSEG:
@@ -148,6 +158,14 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  // TODO 怎么判断 page_fault_triggered_by_a_bad_reference_from_a_system_call ?
+  // 看看fault_addr地址，如果是在内核中说明就是?
+  // 或者说看看 fault_addr 是不是系统调用传递的(和if.esp比较)
+  if (!user) {
+    f->eip = (void (*) (void)) f->eax;
+    f->eax = -1;
+    return;
+  }
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
