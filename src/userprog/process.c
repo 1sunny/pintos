@@ -21,6 +21,16 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+static void
+get_file_name(char *file_name, const char *str) {
+  int u = 0;
+  while (str[u] != ' ' && str[u] != '\0') {
+    file_name[u] = str[u];
+    u++;
+  }
+  file_name[u] = '\0';
+}
+
 // run_task会调用process_execute
 // new thread可能在process_execute返回前被调度运行
 /** Starts a new thread running a user program loaded from
@@ -42,16 +52,20 @@ process_execute (const char *args)
     return TID_ERROR;
   strlcpy (args_copy, args, PGSIZE);
 
-  char *save_ptr = args_copy;
-  char *file_name = strtok_r(args_copy, " ", &save_ptr);
+  char file_name[30];
+  get_file_name(file_name, args_copy);
   // printf("[process_execute] file_name: %s\n", file_name);
 
-  // TODO 这是args_copy的file_name后面已经被添加了 '\0'
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, args_copy);
-  if (tid == TID_ERROR)
+  if (tid == TID_ERROR) {
     palloc_free_page (args_copy);
-  return tid;
+    return -1;
+  }
+// TODO 如果新创建的线程在此之前运行完,sema_down就不会被唤醒了
+  struct thread *curr = thread_current();
+  sema_down(&curr->exec_sema);
+  return curr->exec_result;
 }
 
 static void push_uint32(void **esp, uint32_t v) {
@@ -65,7 +79,8 @@ static void push_uint32(void **esp, uint32_t v) {
 static void
 start_process (void *args)
 {
-  char *file_name = args;
+  char file_name[30];
+  get_file_name(file_name, args);
 
   struct intr_frame if_;
   bool success;
@@ -83,12 +98,21 @@ start_process (void *args)
   // load中会active pagedir
   success = load (file_name, &if_.eip, &if_.esp);
 
+  struct thread *curr = thread_current();
   /* If load failed, quit. */
-  if (!success)
+  if (!success) {
+    palloc_free_page (args);
+    curr->self_in_parent_child_list->child_thread = NULL;
+    curr->exit_code = -1;
+    curr->parent->exec_result = -1;
+    sema_up(&curr->parent->exec_sema);
     thread_exit ();
+  }
 
-  ((char*)args)[strlen(args)] = ' ';
+  // ((char*)args)[strlen(args)] = ' ';
 
+  curr->parent->exec_result = curr->tid;
+  sema_up(&curr->parent->exec_sema);
   // load中调用setup_stack设置好了esp指向PHY_BASE
   ASSERT(if_.esp == PHYS_BASE);
 
@@ -106,7 +130,7 @@ start_process (void *args)
     // printf("argv[%d]: %s\n", argc-1, argv[argc-1]);
   }
 // TODO 虽然现在页表切换了, 但file_name=0xc109000是内核中的地址, 可以不同的内核线程来释放?
-  palloc_free_page (file_name);
+  palloc_free_page (args);
 
   if_.esp = (void *)ROUND_DOWN((uint32_t)if_.esp, 4);
   // 0
@@ -151,13 +175,28 @@ start_process (void *args)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  int cnt = 0;
-  for (;;) {
-    if (cnt > 5000) {
-      break;
+  struct thread *curr = thread_current();
+
+  struct list_elem *e;
+  for (e = list_begin (&curr->child_list); e != list_end (&curr->child_list); e = list_next (e)) {
+    struct child_info *entry = list_entry(e, struct child_info, elem);
+    if (entry->child_tid == child_tid) {
+      if (curr->waiting_tid != TID_ERROR) {
+        return -1;
+      }
+      if (entry->waited) {
+        return -1;
+      }
+      if (entry->child_thread == NULL) {
+        return entry->child_exit_code;
+      } else {
+        curr->waiting_tid = child_tid;
+        sema_down(&curr->wait_sema);
+        curr->waiting_tid = TID_ERROR;
+        entry->waited = true;
+        return entry->child_exit_code;
+      }
     }
-    cnt++;
-    thread_yield();
   }
   return -1;
 }

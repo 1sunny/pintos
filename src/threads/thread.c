@@ -14,6 +14,7 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#include "malloc.h"
 
 const char* thread_status_names[] = {"RU", "RE", "B", "D"};
 
@@ -222,6 +223,16 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
+  t->self_in_parent_child_list = malloc(sizeof(struct child_info));
+  t->self_in_parent_child_list->child_tid = tid;
+  t->self_in_parent_child_list->child_thread = t;
+  t->self_in_parent_child_list->child_exit_code = 0;
+  t->self_in_parent_child_list->waited = false;
+
+  t->parent = thread_current();
+  // 把自己的信息添加到parent的child_list中
+  list_push_back(&t->parent->child_list, &t->self_in_parent_child_list->elem);
+
 // When thread_create() creates a new thread,
 // it goes through a fair amount of trouble to get it started properly.
 // In particular, the new thread hasn't started running yet,
@@ -349,6 +360,34 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
+
+  struct thread *curr = thread_current();
+  struct list_elem *e;
+  for (e = list_begin (&curr->child_list); e != list_end (&curr->child_list); ) {
+    struct child_info *child = list_entry(e, struct child_info, elem);
+    // 先移动迭代器
+    e = list_next (e);
+    if (child->child_thread) {
+      // 如果child还没die, 需要告诉child自己die了
+      child->child_thread->parent = NULL;
+    } else {
+      // 如果child die了, 释放其内存
+      free(child);
+    }
+  }
+  if (curr->parent == NULL) {
+    // parent die了, 自己释放动态分配的内存
+    free(curr->self_in_parent_child_list);
+  } else {
+    curr->self_in_parent_child_list->child_exit_code = curr->exit_code;
+    if (curr->parent->waiting_tid == curr->tid) {
+      // 如果parent在等待自己, 唤醒parent
+      curr->self_in_parent_child_list->child_thread = NULL;
+      sema_up(&curr->parent->wait_sema);
+    }
+    // 置空parent中保存的信息, 表示已die
+    curr->self_in_parent_child_list->child_thread = NULL;
+  }
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
@@ -582,6 +621,14 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init (&t->locks);
   t->waiting_lock = NULL;
 // --- Lab1: Task 2 ---
+// --- Lab2: Task 4 ---
+  list_init(&t->child_list);
+  sema_init(&t->exec_sema, 0);
+  t->exec_result = -1;
+  t->waiting_tid = TID_ERROR;
+  sema_init(&t->wait_sema, 0);
+// --- Lab2: Task 4 ---
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

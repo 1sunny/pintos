@@ -32,6 +32,16 @@ enum thread_status
 typedef int tid_t;
 #define TID_ERROR ((tid_t) -1)          /**< Error value for tid_t. */
 
+// --- Lab2: Task 4 ---
+struct child_info {
+    tid_t child_tid;
+    struct thread *child_thread;
+    int child_exit_code;
+    bool waited; // 该child是否已经等待过
+    struct list_elem elem;
+};
+// --- Lab2: Task 4 ---
+
 /** Thread priorities. */
 #define PRI_MIN 0                       /**< Lowest priority. */
 #define PRI_DEFAULT 31                  /**< Default priority. */
@@ -136,7 +146,16 @@ struct thread
     struct list locks;
     struct lock *waiting_lock;
     // --- Lab1: Task 2 ---
+    // --- Lab2: Task 4 ---
     int exit_code;
+    struct thread *parent;
+    struct list child_list;
+    struct child_info *self_in_parent_child_list; // parent中保存自己的信息,需要自己维护
+    tid_t waiting_tid; //正在等待的tid
+    struct semaphore wait_sema; // 执行wait时,child exit时通过这个唤醒自己
+    struct semaphore exec_sema; // 执行exec时,child通过这个唤醒自己
+    int exec_result;
+    // --- Lab2: Task 4 ---
 };
 
 /** If false (default), use round-robin scheduler.

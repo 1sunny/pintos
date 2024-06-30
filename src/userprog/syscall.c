@@ -31,6 +31,19 @@ syscall_exit(struct intr_frame *f) {
 }
 
 static void
+syscall_exec(struct intr_frame *f) {
+  char *exec_args = get_arg_str(f, 1);
+  // printf("exec_args: %s\n", exec_args);
+  f->eax = process_execute(exec_args);
+}
+
+static void
+syscall_wait(struct intr_frame *f) {
+  int pid = get_arg_int(f, 1);
+  f->eax = process_wait(pid);
+}
+
+static void
 syscall_write(struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
   char *buf = get_arg_str(f, 2);
@@ -49,6 +62,11 @@ syscall_handler (struct intr_frame *f UNUSED)
   switch (syscall_num) {
     case SYS_EXIT:
       syscall_exit(f);
+    case SYS_EXEC:
+      syscall_exec(f);
+      break;
+    case SYS_WAIT:
+      syscall_wait(f);
       break;
     case SYS_WRITE:
       syscall_write(f);
