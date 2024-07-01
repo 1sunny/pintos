@@ -167,6 +167,9 @@ syscall_open(struct intr_frame *f) {
   int fd = curr->next_fd;
   curr->next_fd++;
   struct open_file *of = malloc(sizeof(struct open_file));
+  if (of == NULL) {
+    PANIC("out of memory");
+  }
   of->fd = fd;
 
   lock_acquire(&filesys_lock);
@@ -301,6 +304,7 @@ syscall_close(struct intr_frame *f) {
       list_remove(&of->elem);
       lock_acquire(&filesys_lock);
       file_close(of->file);
+      free(of);
       lock_release(&filesys_lock);
     }
   }

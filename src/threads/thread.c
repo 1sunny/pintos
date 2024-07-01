@@ -226,6 +226,9 @@ thread_create (const char *name, int priority,
   tid = t->tid = allocate_tid ();
 
   t->self_in_parent_child_list = malloc(sizeof(struct child_info));
+  if (t->self_in_parent_child_list == NULL) {
+    PANIC("out of memory");
+  }
   t->self_in_parent_child_list->child_tid = tid;
   t->self_in_parent_child_list->child_thread = t;
   t->self_in_parent_child_list->child_exit_code = 0;
