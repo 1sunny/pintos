@@ -95,8 +95,11 @@ start_process (void *args)
   if_.cs = SEL_UCSEG;
   // 中断开启
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+  lock_acquire(&filesys_lock);
   // load中会active pagedir
   success = load (file_name, &if_.eip, &if_.esp);
+  lock_release(&filesys_lock);
 
   struct thread *curr = thread_current();
   /* If load failed, quit. */

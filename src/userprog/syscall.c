@@ -12,12 +12,40 @@
 
 static void syscall_handler (struct intr_frame *);
 
-static struct lock filesys_lock;
+const char *syscall_names[] = {
+        "HALT",
+        "EXIT",
+        "EXEC",
+        "WAIT",
+        "CREATE",
+        "REMOVE",
+        "OPEN",
+        "FILESIZE",
+        "READ",
+        "WRITE",
+        "SEEK",
+        "TELL",
+        "CLOSE",
+        "MMAP",
+        "MUNMAP",
+        "CHDIR",
+        "MKDIR",
+        "READDIR",
+        "ISDIR",
+        "INUMBER"
+};
+
+static const char*
+get_syscall_name(int enum_val) {
+  if (enum_val < 0 || enum_val >= sizeof(syscall_names) / sizeof(syscall_names[0])) {
+    return "UNKNOWN_ENUM";
+  }
+  return syscall_names[enum_val];
+}
 
 void
 syscall_init (void) 
 {
-  lock_init(&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -283,6 +311,7 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   int syscall_num = get_arg_int(f, 0);
+  // printf("syscall: %s\n", get_syscall_name(syscall_num));
   switch (syscall_num) {
     case SYS_EXIT:
       syscall_exit(f);
