@@ -164,6 +164,7 @@ struct thread
     // --- Lab2: Task 4 ---
     int next_fd;
     struct list open_file_list;
+    struct file *executing_file;
 };
 
 /** If false (default), use round-robin scheduler.

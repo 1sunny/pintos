@@ -399,6 +399,13 @@ thread_exit (void)
     lock_release(&filesys_lock);
     free(entry);
   }
+
+  lock_acquire(&filesys_lock);
+  if (curr->executing_file) {
+    // file_allow_write();
+    file_close(curr->executing_file);
+  }
+  lock_release(&filesys_lock);
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */

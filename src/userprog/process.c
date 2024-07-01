@@ -96,12 +96,17 @@ start_process (void *args)
   // 中断开启
   if_.eflags = FLAG_IF | FLAG_MBS;
 
+  struct thread *curr = thread_current();
+
   lock_acquire(&filesys_lock);
+  struct file *file = filesys_open (file_name);
+  file_deny_write(file);
+  // TODO 这个file需要关闭吧
+  curr->executing_file = file;
   // load中会active pagedir
   success = load (file_name, &if_.eip, &if_.esp);
   lock_release(&filesys_lock);
 
-  struct thread *curr = thread_current();
   /* If load failed, quit. */
   if (!success) {
     palloc_free_page (args);

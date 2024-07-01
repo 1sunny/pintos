@@ -199,7 +199,6 @@ find_open_file(int fd) {
 static void
 syscall_filesize(struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
-  struct thread *curr = thread_current();
 
   int size = -1;
 
