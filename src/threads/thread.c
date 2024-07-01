@@ -365,6 +365,23 @@ thread_exit (void)
 
   struct thread *curr = thread_current();
   struct list_elem *e;
+  // 在sema_up parent前就要释放打开的文件
+  for (e = list_begin (&curr->open_file_list); e != list_end (&curr->open_file_list); ) {
+    struct open_file *entry = list_entry(e, struct open_file, elem);
+    e = list_next (e);
+    lock_acquire(&filesys_lock);
+    file_close(entry->file);
+    lock_release(&filesys_lock);
+    free(entry);
+  }
+
+  lock_acquire(&filesys_lock);
+  if (curr->executing_file) {
+    // file_allow_write();
+    file_close(curr->executing_file);
+  }
+  lock_release(&filesys_lock);
+
   for (e = list_begin (&curr->child_list); e != list_end (&curr->child_list); ) {
     struct child_info *child = list_entry(e, struct child_info, elem);
     // 先移动迭代器
@@ -391,21 +408,6 @@ thread_exit (void)
     curr->self_in_parent_child_list->child_thread = NULL;
   }
 
-  for (e = list_begin (&curr->open_file_list); e != list_end (&curr->open_file_list); ) {
-    struct open_file *entry = list_entry(e, struct open_file, elem);
-    e = list_next (e);
-    lock_acquire(&filesys_lock);
-    file_close(entry->file);
-    lock_release(&filesys_lock);
-    free(entry);
-  }
-
-  lock_acquire(&filesys_lock);
-  if (curr->executing_file) {
-    // file_allow_write();
-    file_close(curr->executing_file);
-  }
-  lock_release(&filesys_lock);
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
