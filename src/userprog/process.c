@@ -284,18 +284,38 @@ struct Elf32_Ehdr
     Elf32_Half    e_shstrndx;
   };
 
+// 用途:
+// 程序头表(Program Header Table)描述的是进程执行时所需的内存布局,它告诉系统如何创建进程的地址空间,
+// 哪些部分应该加载到内存,如何设置内存保护等.
+// 它主要用于程序的加载阶段,即在操作系统加载可执行文件到内存并准备运行时使用.
+
+// 组成部分:
+// 每个程序头条目(Program Header Entry)描述一个段(Segment),
+// 包含段的类型,虚拟地址,物理地址,文件中的偏移,段的大小,内存中的大小,权限等信息.
+// 典型的段类型包括可执行段(LOAD),动态链接信息段(DYNAMIC),解释器段(INTERP)等.
+
+// 位置:
+// 程序头表通常位于文件的开头,它的位置和大小由ELF文件头中的字段指示.
 /** Program header.  See [ELF1] 2-2 to 2-4.
    There are e_phnum of these, starting at file offset e_phoff
    (see [ELF1] 1-6). */
 struct Elf32_Phdr
   {
+    // 段类型,表示该段的类型或属性,例如可加载段(PT_LOAD),动态链接信息(PT_DYNAMIC)等.
     Elf32_Word p_type;
+    // 文件偏移,表示该段在文件中的起始位置(以字节为单位).
     Elf32_Off  p_offset;
+    // 虚拟地址,表示该段在进程虚拟地址空间中的起始地址.
     Elf32_Addr p_vaddr;
+    // 物理地址,表示该段在物理内存中的起始地址.在某些系统中可能忽略这个字段.
     Elf32_Addr p_paddr;
+    // 文件大小,表示该段在文件中的大小(以字节为单位).
     Elf32_Word p_filesz;
+    // 内存大小,表示该段在内存中的大小(以字节为单位).可能大于p_filesz,用于包含未初始化的数据.
     Elf32_Word p_memsz;
+    // 段标志,表示该段的权限和属性,例如可执行(PF_X),可写(PF_W),可读(PF_R)等.
     Elf32_Word p_flags;
+    // 对齐要求,表示该段在内存中的对齐方式,通常是2的幂值.
     Elf32_Word p_align;
   };
 
@@ -313,6 +333,18 @@ struct Elf32_Phdr
 #define PF_X 1          /**< Executable. */
 #define PF_W 2          /**< Writable. */
 #define PF_R 4          /**< Readable. */
+
+// Section Header
+// 用途:
+// 节头表(Section Header Table)描述的是文件中的各个节(Section),每个节包含特定类型的数据,如代码,数据,符号表,重定位信息等.
+// 它主要用于链接阶段,即在编译器和链接器处理目标文件时使用,帮助它们组织和管理文件中的数据.
+
+// 组成部分:
+// 每个节头条目(Section Header Entry)描述一个节,包含节的名称,类型,文件中的偏移,大小,地址对齐要求,链接和重定位信息等.
+// 常见的节类型包括代码段(.text),数据段(.data),只读数据段(.rodata),符号表(.symtab),字符串表(.strtab)等.
+
+// 位置:
+// 节头表通常位于文件的末尾,它的位置和大小同样由ELF文件头中的字段指示.
 
 static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
@@ -392,8 +424,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
           if (validate_segment (&phdr, file)) 
             {
               bool writable = (phdr.p_flags & PF_W) != 0;
+              // 用于获取phdr.p_offset所在页的起始地址(页对齐地址).
               uint32_t file_page = phdr.p_offset & ~PGMASK;
+              // 获取phdr.p_vaddr所在页的起始地址(页对齐地址).
               uint32_t mem_page = phdr.p_vaddr & ~PGMASK;
+              // 获取phdr.p_vaddr在页内的偏移量
               uint32_t page_offset = phdr.p_vaddr & PGMASK;
               uint32_t read_bytes, zero_bytes;
               if (phdr.p_filesz > 0)
@@ -401,6 +436,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
                   /* Normal segment.
                      Read initial part from disk and zero the rest. */
                   read_bytes = page_offset + phdr.p_filesz;
+                  // p_memsz表示该段在内存中的大小(以字节为单位).可能大于p_filesz,用于包含未初始化的数据.
                   zero_bytes = (ROUND_UP (page_offset + phdr.p_memsz, PGSIZE)
                                 - read_bytes);
                 }
@@ -510,6 +546,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
+    // 从file中读PAGE_READ_BYTES字节并清零最后PAGE_ZERO_BYTES字节
       /* Calculate how to fill this page.
          We will read PAGE_READ_BYTES bytes from FILE
          and zero the final PAGE_ZERO_BYTES bytes. */
