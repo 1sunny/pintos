@@ -165,6 +165,9 @@ struct thread
     int next_fd;
     struct list open_file_list;
     struct file *executing_file;
+#ifdef VM
+    struct supplemental_page_table *spt; // point to supplemental_page_table.
+#endif
 };
 
 /** If false (default), use round-robin scheduler.

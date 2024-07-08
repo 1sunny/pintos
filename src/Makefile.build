@@ -69,7 +69,11 @@ userprog_SRC += userprog/gdt.c		# GDT initialization.
 userprog_SRC += userprog/tss.c		# TSS management.
 
 # No virtual memory code yet.
-#vm_SRC = vm/file.c			# Some file.
+vm_SRC = vm/vm.c          # Main api proxy
+vm_SRC += vm/uninit.c     # Uninitialized page
+vm_SRC += vm/anon.c       # Anonymous page
+vm_SRC += vm/file.c       # File mapped page
+vm_SRC += vm/inspect.c    # Testing utility
 
 # Filesystem code.
 filesys_SRC  = filesys/filesys.c	# Filesystem core.
