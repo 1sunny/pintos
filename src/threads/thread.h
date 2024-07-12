@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <vm/vm.h>
 #include "synch.h"
 
 extern const char* thread_status_names[];
@@ -166,7 +167,8 @@ struct thread
     struct list open_file_list;
     struct file *executing_file;
 #ifdef VM
-    struct supplemental_page_table *spt; // point to supplemental_page_table.
+    /* Table for whole virtual memory owned by thread. */
+    struct supplemental_page_table spt;
 #endif
 };
 

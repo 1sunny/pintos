@@ -1,6 +1,7 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <vm/vm.h>
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -157,6 +158,12 @@ page_fault (struct intr_frame *f)
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
+
+#ifdef VM
+  /* For project 3 and later. */
+  if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
+    return;
+#endif
 
   // TODO 怎么判断 page_fault_triggered_by_a_bad_reference_from_a_system_call ?
   // 看看fault_addr地址，如果是在内核中说明就是?

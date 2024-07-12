@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <threads/malloc.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -79,6 +80,10 @@ static void push_uint32(void **esp, uint32_t v) {
 static void
 start_process (void *args)
 {
+// TODO 什么时候释放?
+#ifdef VM
+  supplemental_page_table_init (&thread_current ()->spt);
+#endif
   char file_name[30];
   get_file_name(file_name, args);
 
@@ -214,6 +219,10 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+#ifdef VM
+  supplemental_page_table_kill (&cur->spt);
+#endif
+
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back
@@ -283,6 +292,8 @@ struct Elf32_Ehdr
     Elf32_Half    e_shnum;
     Elf32_Half    e_shstrndx;
   };
+
+// https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
 
 // 用途:
 // 程序头表(Program Header Table)描述的是进程执行时所需的内存布局,它告诉系统如何创建进程的地址空间,
@@ -424,9 +435,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
           if (validate_segment (&phdr, file)) 
             {
               bool writable = (phdr.p_flags & PF_W) != 0;
+              // TODO 同一个段应该不会在同一个页吧? 这也是为什么需要4KB对齐(p_align字段指定)
+              // p_offset:表示该段在文件中的起始位置
               // 用于获取phdr.p_offset所在页的起始地址(页对齐地址).
               uint32_t file_page = phdr.p_offset & ~PGMASK;
-              // 获取phdr.p_vaddr所在页的起始地址(页对齐地址).
+              // p_vaddr:表示该段在进程虚拟地址空间中的起始地址
+              // 获取phdr.p_vaddr所在页的起始地址(页对齐地址).TODO 是指应该加载到虚拟地址为mem_page的地方吗?
               uint32_t mem_page = phdr.p_vaddr & ~PGMASK;
               // 获取phdr.p_vaddr在页内的偏移量
               uint32_t page_offset = phdr.p_vaddr & PGMASK;
@@ -435,6 +449,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
                 {
                   /* Normal segment.
                      Read initial part from disk and zero the rest. */
+                  // 不同的段可能共享同一个页面的一部分.例如:
+                  // 代码段和数据段:代码段(.text)和数据段(.data)可能在同一个页面中连续存放.
+                  // 这样做可以减少页面数量,节省内存.
+
+                  // phdr.p_filesz 是段在文件中的大小,但不一定是段在内存中的实际大小.
+                  // 要加page_offset是因为:
+                  // 假设p_filesz=2KB,phdr.p_vaddr=1KB,应该读取[1KB,3KB],但是1KB之前的内容也需要读取.
+                  // 1KB之前可能是其它段的数据(虽然不同段不是应该页面对齐吗),1KB之前的可以重复覆盖
                   read_bytes = page_offset + phdr.p_filesz;
                   // p_memsz表示该段在内存中的大小(以字节为单位).可能大于p_filesz,用于包含未初始化的数据.
                   zero_bytes = (ROUND_UP (page_offset + phdr.p_memsz, PGSIZE)
@@ -474,7 +496,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
 /** load() helpers. */
 
-static bool install_page (void *upage, void *kpage, bool writable);
 
 /** Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
@@ -521,6 +542,27 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
   return true;
 }
 
+/** Adds a mapping from user virtual address UPAGE to kernel
+   virtual address KPAGE to the page table.
+   If WRITABLE is true, the user process may modify the page;
+   otherwise, it is read-only.
+   UPAGE must not already be mapped.
+   KPAGE should probably be a page obtained from the user pool
+   with palloc_get_page().
+   Returns true on success, false if UPAGE is already mapped or
+   if memory allocation fails. */
+bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
+
+  /* Verify that there's not already a page at that virtual
+     address, then map our page there. */
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+#ifndef VM
 /** Loads a segment starting at offset OFS in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
    memory are initialized, as follows:
@@ -603,22 +645,93 @@ setup_stack (void **esp)
   return success;
 }
 
-/** Adds a mapping from user virtual address UPAGE to kernel
-   virtual address KPAGE to the page table.
-   If WRITABLE is true, the user process may modify the page;
-   otherwise, it is read-only.
-   UPAGE must not already be mapped.
-   KPAGE should probably be a page obtained from the user pool
-   with palloc_get_page().
-   Returns true on success, false if UPAGE is already mapped or
-   if memory allocation fails. */
-static bool
-install_page (void *upage, void *kpage, bool writable)
-{
-  struct thread *t = thread_current ();
 
-  /* Verify that there's not already a page at that virtual
-     address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+#else
+
+struct load_segment_info {
+    struct file *file;
+    size_t page_read_bytes;
+};
+
+static bool
+lazy_load_segment (struct page *page, void *aux) {
+  /* TODO: Load the segment from the file */
+  struct load_segment_info *info = aux;
+  size_t page_read_bytes = info->page_read_bytes;
+  size_t page_zero_bytes = PGSIZE - page_read_bytes;
+  if (file_read (info->file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
+    PANIC("lazy_load_segment");
+    return false;
+  }
+  memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+  // TODO 什么时候install_page吗?
+  if (!install_page (page->va, page->frame->kva, page->writable)) {
+    PANIC("lazy_load_segment");
+  }
+  return true;
+  /* TODO: This called when the first page fault occurs on address VA. */
+  /* TODO: VA is available when calling this function. */
 }
+
+static bool
+load_segment (struct file *file, off_t ofs, uint8_t *upage,
+              uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
+  // read_bytes是加载这个段需要读取的字节数
+  ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
+  ASSERT (pg_ofs (upage) == 0);
+  ASSERT (ofs % PGSIZE == 0);
+
+  while (read_bytes > 0 || zero_bytes > 0) {
+    /* Do calculate how to fill this page.
+     * We will read PAGE_READ_BYTES bytes from FILE
+     * and zero the final PAGE_ZERO_BYTES bytes. */
+    size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+    size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+    // [[[ 和正常的load_segment区别在于正常的会读取文件,这里只是一个uninit页并设置页表,
+    // page fault时再根据根据设置的init函数进行初始化吧 ]]]
+    /* TODO: Set up aux to pass information to the lazy_load_segment. */
+    // TODO 1.这里应该pass什么信息? 看一下加载segment需要什么信息!
+    // TODO 1.记得释放
+    struct load_segment_info *aux = malloc(sizeof (struct load_segment_info));
+    *aux = (struct load_segment_info) {
+            .file            = file,
+            .page_read_bytes = page_read_bytes,
+    };
+    // TODO 不加载文件是肯定的,但要设置页表吗?
+    // lazy_load_segment: 可执行文件页面的初始化器,在出现页面错误时被调用
+    // enum vm_type type, void *upage, bool writable, vm_initializer *init, void *aux
+    if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+                                         writable, lazy_load_segment, aux))
+      return false;
+
+    /* Advance. */
+    read_bytes -= page_read_bytes;
+    zero_bytes -= page_zero_bytes;
+    upage += PGSIZE;
+  }
+  return true;
+}
+
+/* Create a PAGE of stack at the USER_STACK(PHYS_BASE). Return true on success. */
+static bool
+setup_stack (void **esp) {
+  void *stack_bottom = (void *) (((uint8_t *) PHYS_BASE) - PGSIZE);
+
+  /* TODO: Map the stack on stack_bottom and claim the page immediately.
+   * TODO: If success, set the rsp accordingly.
+   * TODO: You should mark the page is stack. */
+  /* TODO: Your code goes here */
+  if (!vm_alloc_page_with_initializer (VM_ANON | VM_MARKER_STACK, stack_bottom,
+                                       true, NULL, NULL)) { // init为NULL,到时候不会执行init
+    PANIC("setup_stack");
+    return false;
+  }
+  if (vm_claim_page(stack_bottom)) {
+    *esp = PHYS_BASE;
+    return true;
+  }
+  PANIC("setup_stack");
+  return false;
+}
+#endif /* VM */

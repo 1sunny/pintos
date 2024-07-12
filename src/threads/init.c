@@ -151,6 +151,10 @@ pintos_init (void)
   filesys_init (format_filesys);
 #endif
 
+#ifdef VM
+  vm_init ();
+#endif
+
   printf ("Boot complete.\n");
   
   if (*argv != NULL) {
