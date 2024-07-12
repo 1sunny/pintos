@@ -179,6 +179,7 @@ vm_get_frame (void) {
     ASSERT (frame != NULL);
     frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
     frame->occupied = true;
+    frame->page = NULL;
     ASSERT (frame->kva != NULL);
     list_push_back(&frame_table.frame_list, &frame->frame_table_elem);
   }
