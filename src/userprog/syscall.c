@@ -313,6 +313,7 @@ syscall_close(struct intr_frame *f) {
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  thread_current()->esp = f->esp;
   int syscall_num = get_arg_int(f, 0);
   // printf("syscall: %s\n", get_syscall_name(syscall_num));
   switch (syscall_num) {

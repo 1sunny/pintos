@@ -1,5 +1,6 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
+#include <stdio.h>
 #include <userprog/process.h>
 #include <userprog/exception.h>
 #include "threads/malloc.h"
@@ -188,10 +189,27 @@ vm_get_frame (void) {
   return frame;
 }
 
+static bool
+is_valid_esp(void *esp) {
+  return (uint32_t)PHYS_BASE - (uint32_t)esp <= 1024 * 1024;
+}
+
 /* Growing the stack. */
-static void
+static bool
 vm_stack_growth (void *addr UNUSED) {
-  PANIC("vm_stack_growth");
+  void *upage = pg_round_down(addr);
+  if (!is_valid_esp(upage)) {
+    // 栈最大1MB
+    printf("stack limit\n");
+    return false;
+  }
+  if (!vm_alloc_page_with_initializer (VM_ANON | VM_MARKER_STACK, upage,
+                                       true, NULL, NULL)) { // init为NULL,到时候不会执行init
+    PANIC("vm_stack_growth");
+  }
+  bool status = vm_claim_page(upage);
+  ASSERT(status);
+  return true;
 }
 
 /* Handle the fault on write_protected page */
@@ -218,6 +236,17 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
   addr = pg_round_down(addr);
   page = spt_find_page(spt, addr);
   if (page == NULL) {
+    // check stack growth
+    void *esp = user ? f->esp : thread_current()->esp;
+    // printf("user esp: %p, fault addr: %p\n", esp, addr);
+    // For Project 3: The bad address lies approximately 64MB below the code segment,
+    // so there is no ambiguity that this attempt must be rejected
+    // even after stack growth is implemented.
+    // Moreover, a good stack growth heuristics should probably
+    // not grow the stack for the purpose of reading the system call number and arguments.
+    if (is_valid_esp(esp) && addr < esp && (uint32_t)esp - (uint32_t)addr <= PGSIZE) {
+      return vm_stack_growth(addr);
+    }
     return false;
   }
   if (page->writable == false && write) {
