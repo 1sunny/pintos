@@ -748,6 +748,7 @@ setup_stack (void **esp) {
   }
   if (vm_claim_page(stack_bottom)) {
     *esp = PHYS_BASE;
+    thread_current()->stack_bottom = (uint32_t) stack_bottom;
     return true;
   }
   PANIC("setup_stack");

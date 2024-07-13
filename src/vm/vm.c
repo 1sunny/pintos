@@ -190,25 +190,30 @@ vm_get_frame (void) {
 }
 
 static bool
-is_valid_esp(void *esp) {
-  return (uint32_t)PHYS_BASE - (uint32_t)esp <= 1024 * 1024;
+is_valid_esp(uint32_t esp) {
+  return (uint32_t)PHYS_BASE - esp <= 1024 * 1024;
 }
 
 /* Growing the stack. */
 static bool
 vm_stack_growth (void *addr UNUSED) {
-  void *upage = pg_round_down(addr);
+  uint32_t upage = (uint32_t) pg_round_down(addr);
   if (!is_valid_esp(upage)) {
     // 栈最大1MB
     printf("stack limit\n");
     return false;
   }
-  if (!vm_alloc_page_with_initializer (VM_ANON | VM_MARKER_STACK, upage,
-                                       true, NULL, NULL)) { // init为NULL,到时候不会执行init
-    PANIC("vm_stack_growth");
+  uint32_t stack_bottom = thread_current()->stack_bottom;
+  ASSERT((stack_bottom - upage) % PGSIZE == 0);
+  for (uint32_t i = upage; i < stack_bottom; i += PGSIZE) {
+    if (!vm_alloc_page_with_initializer (VM_ANON | VM_MARKER_STACK, (void *) i,
+                                         true, NULL, NULL)) { // init为NULL,到时候不会执行init
+      PANIC("vm_stack_growth");
+    }
+    bool status = vm_claim_page((void *) i);
+    ASSERT(status);
   }
-  bool status = vm_claim_page(upage);
-  ASSERT(status);
+  thread_current()->stack_bottom = upage;
   return true;
 }
 
@@ -237,14 +242,14 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
   page = spt_find_page(spt, addr);
   if (page == NULL) {
     // check stack growth
-    void *esp = user ? f->esp : thread_current()->esp;
-    // printf("user esp: %p, fault addr: %p\n", esp, addr);
+    uint32_t esp = (uint32_t) (user ? f->esp : thread_current()->esp);
+    // printf("user esp: %p, fault addr: %p\n", (void*)esp, addr);
     // For Project 3: The bad address lies approximately 64MB below the code segment,
     // so there is no ambiguity that this attempt must be rejected
     // even after stack growth is implemented.
     // Moreover, a good stack growth heuristics should probably
     // not grow the stack for the purpose of reading the system call number and arguments.
-    if (is_valid_esp(esp) && addr < esp && (uint32_t)esp - (uint32_t)addr <= PGSIZE) {
+    if (is_valid_esp(esp) && (uint32_t) addr < esp && esp - (uint32_t)addr <= 16 * PGSIZE) {
       return vm_stack_growth(addr);
     }
     return false;
