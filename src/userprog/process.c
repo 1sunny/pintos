@@ -104,10 +104,6 @@ start_process (void *args)
   struct thread *curr = thread_current();
 
   lock_acquire(&filesys_lock);
-  struct file *file = filesys_open (file_name);
-  file_deny_write(file);
-  // TODO 这个file需要关闭吧
-  curr->executing_file = file;
   // load中会active pagedir
   success = load (file_name, &if_.eip, &if_.esp);
   lock_release(&filesys_lock);
@@ -392,6 +388,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
       goto done; 
     }
 
+  file_deny_write(file);
+  thread_current()->executing_file = file;
+
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -496,7 +495,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  // file_close (file); thread_exit或process_exit时关闭
   return success;
 }
 
