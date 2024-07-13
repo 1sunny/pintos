@@ -119,6 +119,17 @@ kill (struct intr_frame *f)
     }
 }
 
+void page_fault_kill (struct intr_frame *f, void *fault_addr,
+                     bool user, bool write, bool not_present) {
+  printf ("Page fault at %p: %s error %s page in %s context.\n",
+          fault_addr,
+          not_present ? "not present" : "rights violation",
+          write ? "writing" : "reading",
+          user ? "user" : "kernel");
+  kill (f);
+  NOT_REACHED();
+}
+
 /** Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -165,6 +176,7 @@ page_fault (struct intr_frame *f)
     return;
 #endif
 
+  // TODO 之前内核中不会出现bad reference,现在可能因为在内核中访问还没加载的用户地址而出现
   // TODO 怎么判断 page_fault_triggered_by_a_bad_reference_from_a_system_call ?
   // 看看fault_addr地址，如果是在内核中说明就是?
   // 或者说看看 fault_addr 是不是系统调用传递的(和if.esp比较)
@@ -173,14 +185,7 @@ page_fault (struct intr_frame *f)
     f->eax = -1;
     return;
   }
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+  // 像在用户程序访问非法指针就会到这
+  page_fault_kill(f, fault_addr, user, write, not_present);
 }
 

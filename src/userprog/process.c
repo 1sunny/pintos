@@ -564,8 +564,14 @@ install_page (void *upage, void *kpage, bool writable)
 
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+  if (pagedir_get_page (t->pagedir, upage) == NULL) {
+    if (pagedir_set_page (t->pagedir, upage, kpage, writable)) {
+      // printf("install page: %p -> %p (%d)\n", upage, kpage, writable);
+      return true;
+    }
+    printf("install_page: already exits !!!");
+  }
+  return false;
 }
 
 #ifndef VM
@@ -614,6 +620,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
+      printf("%s read %d to %p\n", thread_current()->name, ofs, upage);
       /* Add the page to the process's address space. */
       if (!install_page (upage, kpage, writable)) 
         {
@@ -625,6 +632,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+      ofs += page_read_bytes;
     }
   return true;
 }
@@ -715,7 +723,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
                                          writable, lazy_load_segment, aux))
       return false;
     struct thread *curr = thread_current();
-    // printf("%s need to read %d\n", curr->name, ofs);
+    // printf("%s need to read (%d,%d) to %p\n", curr->name, ofs - ofs % PGSIZE, ofs % PGSIZE, upage);
     /* Advance. */
     read_bytes -= page_read_bytes;
     zero_bytes -= page_zero_bytes;

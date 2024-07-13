@@ -1,6 +1,7 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
 #include <userprog/process.h>
+#include <userprog/exception.h>
 #include "threads/malloc.h"
 #include "threads/pte.h"
 #include "vm/vm.h"
@@ -211,19 +212,21 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
   struct page *page = NULL;
   /* TODO: Validate the fault */
   /* TODO: Your code goes here */
-  if (!user) {
-    return false;
-  }
+  // if (!user) {
+  //   return false;
+  // }
   addr = pg_round_down(addr);
   page = spt_find_page(spt, addr);
   if (page == NULL) {
     return false;
   }
   if (page->writable == false && write) {
-    return false;
+    page_fault_kill(f, addr, user, write, not_present);
   }
   // TODO not_present怎么用?
-  return vm_do_claim_page (page);
+  bool status = vm_do_claim_page(page);
+  ASSERT(status);
+  return true;
 }
 
 /* Free the page.
@@ -262,7 +265,8 @@ vm_do_claim_page (struct page *page) {
 
   /* TODO: Insert page table entry to map page's VA to frame's PA. */
   // 在页表中添加从虚拟地址到物理地址的映射
-  install_page(page->va, frame->kva, page->writable);
+  bool status = install_page(page->va, frame->kva, page->writable);
+  ASSERT(status);
   return swap_in (page, frame->kva);
 }
 
