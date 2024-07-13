@@ -57,6 +57,7 @@ palloc_init (size_t user_page_limit)
   /* [[[[[ Free memory starts at 1 MB and runs to the end of RAM. ]]]]] */
   uint8_t *free_start = ptov (1024 * 1024);
   uint8_t *free_end = ptov (init_ram_pages * PGSIZE);
+  printf("free_start: %p, free_end: %p\n", free_start, free_end);
   // 所以pool中是虚拟地址
   size_t free_pages = (free_end - free_start) / PGSIZE;
   size_t user_pages = free_pages / 2;
@@ -67,8 +68,10 @@ palloc_init (size_t user_page_limit)
 
   /* Give half of memory to kernel, half to user. */
   init_pool (&kernel_pool, free_start, kernel_pages, "kernel pool");
+  printf("kernel_pool: %p -> %p\n", free_start, free_start + (kernel_pages-1) * PGSIZE);
   init_pool (&user_pool, free_start + kernel_pages * PGSIZE,
              user_pages, "user pool");
+  printf("user_pool: %p - %p\n", free_start + kernel_pages * PGSIZE, free_end);
 }
 
 // TODO 这个是返回物理地址还是虚拟地址? 虚拟地址
@@ -108,6 +111,9 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
         PANIC ("palloc_get: out of pages");
     }
 
+  for (size_t i = 0; i < page_cnt; i++) {
+    // printf("get from %s: %p\n", flags & PAL_USER ? "user" : "kernel", pages + PGSIZE * i);
+  }
   return pages;
 }
 
@@ -135,8 +141,12 @@ palloc_free_multiple (void *pages, size_t page_cnt)
   if (pages == NULL || page_cnt == 0)
     return;
 
-  if (page_from_pool (&kernel_pool, pages))
+  bool from_user = true;
+
+  if (page_from_pool (&kernel_pool, pages)) {
     pool = &kernel_pool;
+    from_user = false;
+  }
   else if (page_from_pool (&user_pool, pages))
     pool = &user_pool;
   else
@@ -150,6 +160,9 @@ palloc_free_multiple (void *pages, size_t page_cnt)
 
   ASSERT (bitmap_all (pool->used_map, page_idx, page_cnt));
   bitmap_set_multiple (pool->used_map, page_idx, page_cnt, false);
+  for (size_t i = 0; i < page_cnt; i++) {
+    // printf("from %s, free: %p\n", from_user ? "user" : "kernel", pages + PGSIZE * i);
+  }
 }
 
 /** Frees the page at PAGE. */

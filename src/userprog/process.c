@@ -369,7 +369,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (const char *file_name, void (**eip) (void), void **esp)
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -469,6 +469,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
                   read_bytes = 0;
                   zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
                 }
+              // 第一个phdr.p_offset等于0,也就是说ELF header也会被加载?
+              // 是的,如果 p_offset 值为 0,那么在这个段被加载到内存中的时候,ELF header 也会被加载.
+              // 这意味着段的实际数据从文件的开头开始,包括 ELF header.
+              // 这种情况虽然不常见,但在某些特殊情况下可能会发生,例如在一些简化的 ELF 文件中,
+              // 数据段和 ELF header 紧密排列在一起,
+              // 导致加载器将整个文件内容(包括 ELF header)加载到内存中.
               if (!load_segment (file, file_page, (void *) mem_page,
                                  read_bytes, zero_bytes, writable))
                 goto done;
@@ -649,8 +655,8 @@ setup_stack (void **esp)
 #else
 
 struct load_segment_info {
-    struct file *file;
     size_t page_read_bytes;
+    off_t ofs;
 };
 
 static bool
@@ -659,15 +665,19 @@ lazy_load_segment (struct page *page, void *aux) {
   struct load_segment_info *info = aux;
   size_t page_read_bytes = info->page_read_bytes;
   size_t page_zero_bytes = PGSIZE - page_read_bytes;
-  if (file_read (info->file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
+  // TODO 需不需要重新打开文件啥的
+  struct thread *curr = thread_current();
+  file_seek(curr->executing_file, info->ofs);
+  int32_t bytes_read = file_read(curr->executing_file, page->frame->kva, page_read_bytes);
+  if (bytes_read != (int) page_read_bytes) {
     PANIC("lazy_load_segment");
     return false;
   }
-  memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
-  // TODO 什么时候install_page吗?
-  if (!install_page (page->va, page->frame->kva, page->writable)) {
-    PANIC("lazy_load_segment");
+  // printf("%s read %d\n", curr->name, info->ofs);
+  if (page_zero_bytes > 0) {
+    memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
   }
+  // TODO 什么时候install_page吗? vm_do_claim_page中install过了
   return true;
   /* TODO: This called when the first page fault occurs on address VA. */
   /* TODO: VA is available when calling this function. */
@@ -695,8 +705,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
     // TODO 1.记得释放
     struct load_segment_info *aux = malloc(sizeof (struct load_segment_info));
     *aux = (struct load_segment_info) {
-            .file            = file,
-            .page_read_bytes = page_read_bytes,
+            .page_read_bytes      = page_read_bytes,
+            .ofs                  = ofs,
     };
     // TODO 不加载文件是肯定的,但要设置页表吗?
     // lazy_load_segment: 可执行文件页面的初始化器,在出现页面错误时被调用
@@ -704,11 +714,13 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
     if (!vm_alloc_page_with_initializer (VM_ANON, upage,
                                          writable, lazy_load_segment, aux))
       return false;
-
+    struct thread *curr = thread_current();
+    // printf("%s need to read %d\n", curr->name, ofs);
     /* Advance. */
     read_bytes -= page_read_bytes;
     zero_bytes -= page_zero_bytes;
     upage += PGSIZE;
+    ofs += page_read_bytes;
   }
   return true;
 }
