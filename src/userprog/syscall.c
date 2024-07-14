@@ -94,6 +94,15 @@ void read_user_addr(void *dst, void *src, size_t n) {
   }
 }
 
+static void
+check_write_user_addr(uint8_t *dst, size_t n) {
+  for (size_t i = 0; i < n; ++i) {
+    if (!put_user(dst + i, 0)) {
+      kill_process();
+    }
+  }
+}
+
 static int
 get_arg_int(struct intr_frame *f, int num) {
   void* buf[4];
@@ -219,6 +228,7 @@ syscall_read(struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
   char *buf = get_arg_str(f, 2);
   size_t size = get_arg_int(f, 3);
+  check_write_user_addr((uint8_t*) buf, size);
 
   if (fd == 0) {
     int read = 0;

@@ -226,6 +226,7 @@ vm_handle_wp (struct page *page UNUSED) {
 // -> vm_try_handle_fault -> vm_do_claim_page -> swap_in
 // ->
 
+// user和kernel都可能
 // addr: the virtual address that was accessed to cause the fault
 /* Return true on success */
 bool
@@ -255,13 +256,13 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
     }
     return false;
   }
-  if (page->writable == false && write) {
-    page_fault_kill(f, addr, user, write, not_present);
-  }
+  // 内核代码中出现fault,不能用kill函数,只能把线程exit,
+  // 那么vm_try_handle_fault中就只管页不在和stack grow,除此之外的内核fault就只能是syscall的检测引起
+  // if (page->writable == false && write) {
+  //   page_fault_kill(f, addr, user, write, not_present);
+  // }
   // TODO not_present怎么用?
-  bool status = vm_do_claim_page(page);
-  ASSERT(status);
-  return true;
+  return vm_do_claim_page(page);
 }
 
 /* Free the page.
@@ -300,8 +301,9 @@ vm_do_claim_page (struct page *page) {
 
   /* TODO: Insert page table entry to map page's VA to frame's PA. */
   // 在页表中添加从虚拟地址到物理地址的映射
-  bool status = install_page(page->va, frame->kva, page->writable);
-  ASSERT(status);
+  if (!install_page(page->va, frame->kva, page->writable)) {
+    return false;
+  }
   return swap_in (page, frame->kva);
 }
 
