@@ -249,7 +249,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
     // even after stack growth is implemented.
     // Moreover, a good stack growth heuristics should probably
     // not grow the stack for the purpose of reading the system call number and arguments.
-    if (is_valid_esp(esp) && (uint32_t) addr < esp && esp - (uint32_t)addr <= 16 * PGSIZE) {
+    if (write && is_valid_esp(esp) && (uint32_t) addr < esp
+        && esp - (uint32_t)addr <= 16 * PGSIZE) {
       return vm_stack_growth(addr);
     }
     return false;
