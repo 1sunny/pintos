@@ -666,7 +666,7 @@ struct load_segment_info {
     off_t ofs;
 };
 
-static bool
+bool
 lazy_load_segment (struct page *page, void *aux) {
   /* TODO: Load the segment from the file */
   struct load_segment_info *info = aux;
@@ -675,6 +675,7 @@ lazy_load_segment (struct page *page, void *aux) {
   // TODO 需不需要重新打开文件啥的
   struct thread *curr = thread_current();
   file_seek(curr->executing_file, info->ofs);
+  // TODO 这里page->frame->kva和page->va应该都是可以的
   int32_t bytes_read = file_read(curr->executing_file, page->frame->kva, page_read_bytes);
   if (bytes_read != (int) page_read_bytes) {
     PANIC("lazy_load_segment");

@@ -13,6 +13,22 @@ static struct frame_table frame_table;
 static void
 frame_table_init(void) {
   list_init(&frame_table.frame_list);
+  struct frame *frame = NULL;
+  while (true) {
+    frame = malloc(sizeof (struct frame));
+    if (frame == NULL) {
+      break;
+    }
+    frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
+    if (frame->kva == NULL) {
+      free(frame);
+      break;
+    }
+    frame->page = NULL;
+    frame->occupied = false;
+    frame->pined = false;
+    list_push_back(&frame_table.frame_list, &frame->frame_table_elem);
+  }
 }
 
 // TODO 在pintos_init里调用, ok
@@ -141,8 +157,17 @@ static struct frame *
 vm_get_victim (void) {
   struct frame *victim = NULL;
   /* TODO: The policy for eviction is up to you. */
+  struct list_elem *e;
+  for (e = list_begin (&frame_table.frame_list); e != list_end (&frame_table.frame_list); e = list_next (e)) {
+    struct frame *entry = list_entry(e, struct frame, frame_table_elem);
+    if (entry->pined == false) {
+      victim = list_entry(e, struct frame, frame_table_elem);
+      list_remove(e);
+      list_push_back(&frame_table.frame_list, e);
+      return victim;
+    }
+  }
   PANIC("vm_get_victim");
-  return victim;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -150,9 +175,14 @@ vm_get_victim (void) {
 static struct frame *
 vm_evict_frame (void) {
   struct frame *victim UNUSED = vm_get_victim ();
+  ASSERT(victim->pined == false);
   /* TODO: swap out the victim and return the evicted frame. */
-  PANIC("vm_evict_frame");
-  return NULL;
+  if (swap_out(victim->page) == false) {
+    PANIC("vm_get_victim");
+  }
+  victim->page = NULL;
+  victim->occupied = false;
+  return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -171,20 +201,17 @@ vm_get_frame (void) {
   for (e = list_begin (&frame_table.frame_list); e != list_end (&frame_table.frame_list); e = list_next (e)) {
     struct frame *entry = list_entry(e, struct frame, frame_table_elem);
     if (entry->occupied == false) {
-      frame = entry;
       entry->occupied = true;
+      return entry;
     }
   }
 // TODO 加上pined,frame应该提前全部分配好?
   if (frame == NULL) {
-    frame = malloc(sizeof (struct frame));
-    ASSERT (frame != NULL);
-    frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
+    frame = vm_evict_frame();
     frame->occupied = true;
-    frame->page = NULL;
-    ASSERT (frame->kva != NULL);
-    list_push_back(&frame_table.frame_list, &frame->frame_table_elem);
+    return frame;
   }
+  NOT_REACHED();
   ASSERT (frame->page == NULL);
   return frame;
 }
@@ -239,8 +266,10 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
   // if (!user) {
   //   return false;
   // }
+  void *old_addr = addr;
   addr = pg_round_down(addr);
   page = spt_find_page(spt, addr);
+  // printf("page: %p, fault_addr: %p, eip: %p\n", page, old_addr, f->eip);
   if (page == NULL) {
     // check stack growth
     uint32_t esp = (uint32_t) (user ? f->esp : thread_current()->esp);
