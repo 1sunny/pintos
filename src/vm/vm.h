@@ -1,6 +1,7 @@
 #ifndef VM_VM_H
 #define VM_VM_H
 #include <stdbool.h>
+// #include <threads/thread.h> 后面有struct thread;前向声明, 这里引入的话会造成循环引用
 #include "threads/palloc.h"
 #include "list.h"
 
@@ -63,6 +64,7 @@ struct page {
 	};
 };
 
+typedef int tid_t;
 // 80x86 没有提供任何直接访问物理地址内存的方法.
 // Pintos 通过将内核虚拟内存直接映射到物理内存来解决这个问题:
 // 内核虚拟内存的第一页映射到物理内存的第一帧,第二页映射到第二帧,以此类推.
@@ -71,7 +73,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
-	bool occupied;
+  struct thread *occupied_thread;
 	bool pined;
 	struct list_elem frame_table_elem;
 };
@@ -105,6 +107,8 @@ void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src);
 void supplemental_page_table_kill (struct supplemental_page_table *spt);
+bool unpin_pages(uint8_t *addr_start, size_t n);
+bool try_pin_pages(uint8_t *addr_start, size_t n, bool write);
 struct page *spt_find_page (struct supplemental_page_table *spt,
 		void *va);
 bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);

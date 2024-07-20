@@ -25,7 +25,7 @@ frame_table_init(void) {
       break;
     }
     frame->page = NULL;
-    frame->occupied = false;
+    frame->occupied_thread = NULL;
     frame->pined = false;
     list_push_back(&frame_table.frame_list, &frame->frame_table_elem);
   }
@@ -115,6 +115,39 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
   return false;
 }
 
+bool unpin_pages(uint8_t *addr_start, size_t n) {
+  struct supplemental_page_table *spt = &thread_current()->spt;
+  uint8_t *addr_end = addr_start + n;
+  for (uint8_t *pg = pg_round_down(addr_start); pg <= addr_end; pg += PGSIZE) {
+    struct page *page = spt_find_page(spt, pg);
+    ASSERT(page != NULL);
+    ASSERT(page->frame != NULL);
+    ASSERT(page->frame->pined == true);
+    page->frame->pined = false;
+  }
+  return true;
+}
+
+bool
+try_pin_pages(uint8_t *addr_start, size_t n, bool write) {
+  struct supplemental_page_table *spt = &thread_current()->spt;
+  uint8_t *addr_end = addr_start + n;
+  for (uint8_t *pg = pg_round_down(addr_start); pg <= addr_end; pg += PGSIZE) {
+    struct page *page = spt_find_page(spt, pg);
+    // TODO 应该可以去掉Lab 2的错误处理了
+    if (page == false || (write && page->writable == false)) {
+      // 对于恶意指针
+      return false;
+    }
+    if (page->frame == NULL) {
+      vm_do_claim_page(page);
+    }
+    ASSERT(page->frame != NULL);
+    page->frame->pined = true;
+  }
+  return true;
+}
+
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
@@ -180,8 +213,9 @@ vm_evict_frame (void) {
   if (swap_out(victim->page) == false) {
     PANIC("vm_get_victim");
   }
+  victim->page->frame = NULL; // 这里考虑加锁的时候肯定不好加
   victim->page = NULL;
-  victim->occupied = false;
+  victim->occupied_thread = NULL;
   return victim;
 }
 
@@ -197,18 +231,19 @@ vm_get_frame (void) {
   // frame要释放吗,可以只是把page置空表示没被占用
   // TODO 这些需要同步吧
 
+  struct thread *curr = thread_current();
   struct list_elem *e;
   for (e = list_begin (&frame_table.frame_list); e != list_end (&frame_table.frame_list); e = list_next (e)) {
     struct frame *entry = list_entry(e, struct frame, frame_table_elem);
-    if (entry->occupied == false) {
-      entry->occupied = true;
+    if (entry->occupied_thread == NULL) {
+      entry->occupied_thread = curr;
       return entry;
     }
   }
 // TODO 加上pined,frame应该提前全部分配好?
   if (frame == NULL) {
     frame = vm_evict_frame();
-    frame->occupied = true;
+    frame->occupied_thread = curr;
     return frame;
   }
   NOT_REACHED();
@@ -287,6 +322,9 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
   }
   // 内核代码中出现fault,不能用kill函数,只能把线程exit,
   // 那么vm_try_handle_fault中就只管页不在和stack grow,除此之外的内核fault就只能是syscall的检测引起
+  // TODO 应该使用下面的代码,只不过把page_fault_kill改成return false,
+  // 不用也可以是因为vm_do_claim_page中判断了install_page的情况,
+  // 对于write错误,install_page是失败
   // if (page->writable == false && write) {
   //   page_fault_kill(f, addr, user, write, not_present);
   // }
@@ -298,6 +336,11 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
  * DO NOT MODIFY THIS FUNCTION. */
 void
 vm_dealloc_page (struct page *page) {
+  struct thread *curr = thread_current();
+  if (page->frame) {
+    ASSERT(page->frame->occupied_thread == curr);
+    page->frame->occupied_thread = NULL;
+  }
   destroy (page);
   free (page);
 }
@@ -331,6 +374,9 @@ vm_do_claim_page (struct page *page) {
   /* TODO: Insert page table entry to map page's VA to frame's PA. */
   // 在页表中添加从虚拟地址到物理地址的映射
   if (!install_page(page->va, frame->kva, page->writable)) {
+    // TODO 什么情况会失败? 对于只写的进行write就会吧,因为
+    // TODO 应该把这个frame释放吧
+    ASSERT("vm_do_claim_page");
     return false;
   }
   return swap_in (page, frame->kva);
@@ -355,5 +401,11 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
   /* TODO: Destroy all the supplemental_page_table hold by thread and
    * TODO: writeback all the modified contents to the storage. */
-  // PANIC("supplemental_page_table_kill");
+  struct list_elem *e;
+  for (e = list_begin (&spt->page_list); e != list_end (&spt->page_list); ) {
+    struct page *entry = list_entry(e, struct page, spt_elem);
+    e = list_next (e);
+    vm_dealloc_page(entry);
+  }
+  // TODO: writeback all the modified contents to the storage.
 }

@@ -4,6 +4,8 @@
 #include <userprog/pagedir.h>
 #include "anon.h"
 #include "vm/vm.h"
+#include "stdio.h"
+#include "threads/thread.h"
 
 struct block *swap_disk;
 static struct swap_table swap_table;
@@ -73,6 +75,7 @@ static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
 	struct swap_slot *slot = anon_page->swap_slot;
+	ASSERT(slot != NULL);
 	if (true) { // anon_page->dirty || anon_page->is_stack_page
 		// read from swap
 		for (block_sector_t i = 0; i < PGSIZE / BLOCK_SECTOR_SIZE; ++i) {
@@ -82,6 +85,7 @@ anon_swap_in (struct page *page, void *kva) {
 			block_read(swap_disk, slot->start_sector + i, page->frame->kva + i * BLOCK_SECTOR_SIZE);
 		}
 		slot->occupied = false;
+		anon_page->swap_slot = NULL;
 	} else {
 		// read from executable file
 	}
@@ -92,20 +96,22 @@ anon_swap_in (struct page *page, void *kva) {
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	bool dirty = pagedir_is_dirty(thread_current()->pagedir, page->va);
+	struct thread *curr = page->frame->occupied_thread;
+	ASSERT(is_thread(curr));
+	bool dirty = pagedir_is_dirty(curr->pagedir, page->va);
 	if (true) { // dirty || anon_page->is_stack_page
 		struct swap_slot *slot = swap_get_slot();
 		ASSERT(slot);
 		// write to swap
 		for (block_sector_t i = 0; i < PGSIZE / BLOCK_SECTOR_SIZE; ++i) {
-			block_write(swap_disk, slot->start_sector + i, page->va + i * BLOCK_SECTOR_SIZE);
+			block_write(swap_disk, slot->start_sector + i, page->frame->kva + i * BLOCK_SECTOR_SIZE);
 		}
 
 		anon_page->swap_slot = slot;
 	}
 	anon_page->dirty |= dirty;
 	// remove pte !
-	pagedir_clear_page(thread_current()->pagedir, page->va);
+	pagedir_clear_page(curr->pagedir, page->va);
 	return true;
 }
 
@@ -113,5 +119,8 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	PANIC("anon_destroy");
+	if (anon_page->swap_slot) {
+		anon_page->swap_slot->occupied = false;
+		anon_page->swap_slot = NULL;
+	}
 }

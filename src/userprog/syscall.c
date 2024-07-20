@@ -8,6 +8,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "process.h"
+#include "string.h"
 #include "threads/malloc.h"
 
 static void syscall_handler (struct intr_frame *);
@@ -80,7 +81,8 @@ put_user (uint8_t *udst, uint8_t byte)
   return error_code != -1;
 }
 
-void read_user_addr(void *dst, void *src, size_t n) {
+static void
+read_user_addr(uint8_t *dst, uint8_t *src, size_t n) {
   for (size_t i = 0; i < n; ++i) {
     if (src + i >= PHYS_BASE) {
       kill_process();
@@ -89,7 +91,9 @@ void read_user_addr(void *dst, void *src, size_t n) {
     if (value == -1) {
       kill_process();
     } else {
-      ((uint8_t*)dst)[i] = value;
+      if (dst != NULL) {
+        dst[i] = value;
+      }
     }
   }
 }
@@ -97,6 +101,9 @@ void read_user_addr(void *dst, void *src, size_t n) {
 static void
 check_write_user_addr(uint8_t *dst, size_t n) {
   for (size_t i = 0; i < n; ++i) {
+    if (dst + i >= PHYS_BASE) {
+      kill_process();
+    }
     if (!put_user(dst + i, 0)) {
       kill_process();
     }
@@ -105,14 +112,14 @@ check_write_user_addr(uint8_t *dst, size_t n) {
 
 static int
 get_arg_int(struct intr_frame *f, int num) {
-  void* buf[4];
+  uint8_t buf[4];
   read_user_addr(buf, f->esp + num * 4, 4);
   return *(int *)buf;
 }
 
 static char*
 get_arg_str(struct intr_frame *f, int num) {
-  void* buf[4];
+  uint8_t buf[4];
   read_user_addr(buf, f->esp + num * 4, 4);
   char *str = *(char **)buf;
   int i = 0;
@@ -129,6 +136,22 @@ get_arg_str(struct intr_frame *f, int num) {
     i++;
   }
   return str;
+}
+
+static void*
+get_buf(struct intr_frame *f, int num, size_t n, bool write) {
+  uint8_t buf[4];
+  read_user_addr(buf, f->esp + num * 4, 4);
+  uint8_t *res = *(uint8_t **)buf;
+  if (try_pin_pages(res, n, false) == false) {
+    kill_process();
+  }
+  if (write) {
+    check_write_user_addr(res, n);
+  } else {
+    read_user_addr(NULL, res, n);
+  }
+  return (void *)res;
 }
 
 static void
@@ -226,9 +249,9 @@ syscall_filesize(struct intr_frame *f) {
 static void
 syscall_read(struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
-  char *buf = get_arg_str(f, 2);
+  // char *buf = get_arg_str(f, 2);
   size_t size = get_arg_int(f, 3);
-  check_write_user_addr((uint8_t*) buf, size);
+  uint8_t *buf = get_buf(f, 2, size, true);
 
   if (fd == 0) {
     int read = 0;
@@ -249,14 +272,15 @@ syscall_read(struct intr_frame *f) {
       f->eax = -1;
     }
   }
+  unpin_pages(buf, size);
 }
 
 static void
 syscall_write(struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
-  char *buf = get_arg_str(f, 2);
+  // char *buf = get_arg_str(f, 2);
   size_t size = get_arg_int(f, 3);
-
+  char *buf = get_buf(f, 2, size, false);
   if (fd == 0) {
     f->eax = -1;
   } else if (fd == 1) {
@@ -272,6 +296,7 @@ syscall_write(struct intr_frame *f) {
       f->eax = -1;
     }
   }
+  unpin_pages(buf, size);
 }
 
 static void

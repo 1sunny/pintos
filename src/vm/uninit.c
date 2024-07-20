@@ -56,6 +56,7 @@ uninit_initialize (struct page *page, void *kva) {
 		(init ? init (page, aux) : true);
 }
 
+// PAGE will be freed by the caller啥意思?就是page在这里不用管,由调用者释放吧
 /* Free the resources hold by uninit_page. Although most of pages are transmuted
  * to other page objects, it is possible to have uninit pages when the process
  * exit, which are never referenced during the execution.
@@ -65,5 +66,5 @@ uninit_destroy (struct page *page) {
 	struct uninit_page *uninit UNUSED = &page->uninit;
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
-  PANIC("uninit_destroy");
+  // nothing to do...
 }
