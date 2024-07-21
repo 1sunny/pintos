@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <userprog/process.h>
 #include <userprog/exception.h>
+#include <userprog/pagedir.h>
 #include "threads/malloc.h"
 #include "threads/pte.h"
 #include "vm/vm.h"
@@ -107,6 +108,11 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
     // 创建一个未初始化的页面,设置好页面初始化函数initializer和init
     uninit_new(page, upage, init, type, aux, initializer);
     page->writable = writable;
+    page->map_id = -1;
+    if (VM_TYPE(type) == VM_FILE) {
+      ASSERT(aux);
+      page->map_id = ((struct load_file_info *)aux)->map_id;
+    }
 
     /* TODO: Insert the page into the spt. */
     return spt_insert_page(spt, page);
@@ -343,6 +349,7 @@ vm_dealloc_page (struct page *page) {
   if (page->frame) {
     ASSERT(page->frame->occupied_thread == curr);
     page->frame->occupied_thread = NULL;
+    pagedir_clear_page(curr->pagedir, page->va);
   }
   free (page);
 }

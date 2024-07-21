@@ -419,7 +419,7 @@ syscall_munmap(struct intr_frame *f) {
     struct page *entry = list_entry(e, struct page, spt_elem);
     struct list_elem *save_e = e;
     e = list_next (e);
-    if (page_get_type(entry) == VM_FILE && entry->file.info->map_id == id) {
+    if (page_get_type(entry) == VM_FILE && entry->map_id == id) {
       list_remove(save_e);
       vm_dealloc_page(entry);
       return;
