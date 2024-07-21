@@ -171,6 +171,7 @@ struct thread
     struct supplemental_page_table spt;
     void *esp;
     uint32_t stack_bottom;
+    mapid_t next_mapid;
 #endif
 };
 

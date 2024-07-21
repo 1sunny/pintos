@@ -5,6 +5,8 @@
 #include "threads/palloc.h"
 #include "list.h"
 
+typedef int mapid_t;
+
 enum vm_type {
 	/* page not initialized */
 	VM_UNINIT = 0,
@@ -80,6 +82,13 @@ struct frame {
 
 struct frame_table {
 		struct list frame_list;
+};
+
+struct load_file_info {
+		struct file *file;
+		off_t ofs;
+		size_t read_bytes;
+		mapid_t map_id;
 };
 
 /* The function table for page operations.

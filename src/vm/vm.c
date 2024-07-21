@@ -337,11 +337,13 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 void
 vm_dealloc_page (struct page *page) {
   struct thread *curr = thread_current();
+
+  destroy (page);
+
   if (page->frame) {
     ASSERT(page->frame->occupied_thread == curr);
     page->frame->occupied_thread = NULL;
   }
-  destroy (page);
   free (page);
 }
 

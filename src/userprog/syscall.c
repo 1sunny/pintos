@@ -345,6 +345,88 @@ syscall_close(struct intr_frame *f) {
   }
 }
 
+static bool
+lazy_load_file (struct page *page, void *aux) {
+  struct load_file_info *info = aux;
+
+  file_seek(info->file, info->ofs);
+  size_t bytes_read = file_read(info->file, page->frame->kva, info->read_bytes);
+  if (bytes_read != info->read_bytes) {
+    PANIC("lazy_load_file");
+    return false;
+  }
+  if (info->read_bytes != PGSIZE) {
+    memset (page->frame->kva + info->read_bytes, 0, PGSIZE - info->read_bytes);
+  }
+  return true;
+}
+
+static void
+syscall_mmap(struct intr_frame *f) {
+  int fd = get_arg_int(f, 1);
+  uint8_t *addr = (uint8_t *)get_arg_int(f, 2);
+  if (fd <= 1 || addr == NULL || (uint32_t)addr % PGSIZE != 0) {
+    goto fail;
+  }
+  struct open_file *open_file = find_open_file(fd);
+  if (open_file == NULL) {
+    goto fail;
+  }
+  size_t file_len = file_length(open_file->file);
+  if (file_len == 0) {
+    goto fail;
+  }
+  struct thread *curr = thread_current();
+  // check addr over lap
+  // TODO check when stack growth
+  struct supplemental_page_table *spt = &curr->spt;
+  for (uint8_t *i = addr; i < addr + file_len; i += PGSIZE) {
+    if (spt_find_page (spt, i) != NULL) {
+      goto fail;
+    }
+  }
+
+  struct file *mmap_file = file_reopen(open_file->file);
+  // TODO 之前page里的aux好像没释放
+  for (uint8_t *pg_base = addr; pg_base < addr + file_len; pg_base += PGSIZE) {
+    struct load_file_info *aux = malloc(sizeof (struct load_file_info));
+    *aux = (struct load_file_info) {
+            .file       = mmap_file,
+            .ofs        = pg_base - addr,
+            .read_bytes = (pg_base + PGSIZE < addr + file_len) ? PGSIZE : addr + file_len - pg_base,
+            .map_id     = curr->next_mapid,
+    };
+    if (vm_alloc_page_with_initializer(VM_FILE, pg_base, true, lazy_load_file, aux) == false) {
+      PANIC("syscall_mmap");
+    }
+  }
+
+  f->eax = curr->next_mapid;
+  curr->next_mapid++;
+  return;
+
+fail:
+  f->eax = -1;
+}
+
+static void
+syscall_munmap(struct intr_frame *f) {
+  mapid_t id = get_arg_int(f, 1);
+  struct thread *curr = thread_current();
+
+  struct list_elem *e;
+  for (e = list_begin (&curr->spt.page_list); e != list_end (&curr->spt.page_list); ) {
+    struct page *entry = list_entry(e, struct page, spt_elem);
+    struct list_elem *save_e = e;
+    e = list_next (e);
+    if (page_get_type(entry) == VM_FILE && entry->file.info->map_id == id) {
+      list_remove(save_e);
+      vm_dealloc_page(entry);
+      return;
+    }
+  }
+}
+
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
@@ -387,6 +469,12 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_CLOSE:
       syscall_close(f);
+      break;
+    case SYS_MMAP:
+      syscall_mmap(f);
+      break;
+    case SYS_MUNMAP:
+      syscall_munmap(f);
       break;
     default:
       printf ("unimplemented system call!\n");

@@ -109,6 +109,7 @@ anon_swap_out (struct page *page) {
 
 		anon_page->swap_slot = slot;
 	}
+  // TODO 感觉这个dirty没必要
 	anon_page->dirty |= dirty;
 	// remove pte !
 	pagedir_clear_page(curr->pagedir, page->va);

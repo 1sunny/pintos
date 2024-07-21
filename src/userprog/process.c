@@ -674,6 +674,7 @@ lazy_load_segment (struct page *page, void *aux) {
   size_t page_zero_bytes = PGSIZE - page_read_bytes;
   // TODO 需不需要重新打开文件啥的
   struct thread *curr = thread_current();
+  // TODO 这里好像应该加锁啊
   file_seek(curr->executing_file, info->ofs);
   // TODO 这里page->frame->kva和page->va应该都是可以的
   int32_t bytes_read = file_read(curr->executing_file, page->frame->kva, page_read_bytes);
