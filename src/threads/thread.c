@@ -405,9 +405,10 @@ thread_exit (void)
       // 如果parent在等待自己, 唤醒parent
       curr->self_in_parent_child_list->child_thread = NULL;
       sema_up(&curr->parent->wait_sema);
+    } else {
+      // 置空parent中保存的信息, 表示已die
+      curr->self_in_parent_child_list->child_thread = NULL;
     }
-    // 置空parent中保存的信息, 表示已die
-    curr->self_in_parent_child_list->child_thread = NULL;
   }
 
   /* Remove thread from all threads list, set our status to dying,
