@@ -3,6 +3,8 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 
+// 将文件读取和写入转换为磁盘扇区读取和写入
+
 /** An open file. */
 struct file 
   {
@@ -10,6 +12,8 @@ struct file
     off_t pos;                  /**< Current position. */
     bool deny_write;            /**< Has file_deny_write() been called? */
   };
+
+// TODO 下面这些操作好像都没考虑同步问题,在之前的Lab是通过一个大锁解决(访问filesys前获取锁)
 
 /** Opens a file for the given INODE, of which it takes ownership,
    and returns the new file.  Returns a null pointer if an

@@ -51,9 +51,12 @@ bool
 filesys_create (const char *name, off_t initial_size) 
 {
   block_sector_t inode_sector = 0;
+  // TODO 这里直接使用的root,后续要改
   struct dir *dir = dir_open_root ();
   bool success = (dir != NULL
+                     // 分配一个sector当作创建的文件的inode_disk存放位置
                   && free_map_allocate (1, &inode_sector)
+                     // 在这个sector上创建inode_disk
                   && inode_create (inode_sector, initial_size)
                   && dir_add (dir, name, inode_sector));
   if (!success && inode_sector != 0) 
@@ -63,6 +66,8 @@ filesys_create (const char *name, off_t initial_size)
   return success;
 }
 
+// 这个是根据路径和文件名进行查找到inode,然后用inode调用file_open来malloc一个struct file(pos,deny_write)
+// TODO 系统调用应该只会使用这个来open吧? 不会使用file_open
 /** Opens the file with the given NAME.
    Returns the new file if successful or a null pointer
    otherwise.

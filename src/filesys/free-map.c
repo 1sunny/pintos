@@ -6,6 +6,7 @@
 #include "filesys/inode.h"
 
 static struct file *free_map_file;   /**< Free map file. */
+// one bit per sector !!!
 static struct bitmap *free_map;      /**< Free map, one bit per sector. */
 
 /** Initializes the free map. */
@@ -19,6 +20,7 @@ free_map_init (void)
   bitmap_mark (free_map, ROOT_DIR_SECTOR);
 }
 
+// 分配连续cnt个扇区,把第一个存储在sectorp
 /** Allocates CNT consecutive sectors from the free map and stores
    the first into *SECTORP.
    Returns true if successful, false if not enough consecutive
@@ -49,6 +51,7 @@ free_map_release (block_sector_t sector, size_t cnt)
   bitmap_write (free_map, free_map_file);
 }
 
+// 从第0个扇区读取free map
 /** Opens the free map file and reads it from disk. */
 void
 free_map_open (void) 

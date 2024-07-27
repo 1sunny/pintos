@@ -16,6 +16,7 @@ struct dir
 /** A single directory entry. */
 struct dir_entry 
   {
+    // TODO inode_sector干啥的: 这个目录项对应文件的inode
     block_sector_t inode_sector;        /**< Sector number of header. */
     char name[NAME_MAX + 1];            /**< Null terminated file name. */
     bool in_use;                        /**< In use or free? */
@@ -29,6 +30,7 @@ dir_create (block_sector_t sector, size_t entry_cnt)
   return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
 }
 
+// 为inode创建一个dir来表示目录当前状态(pos)
 /** Opens and returns the directory for the given INODE, of which
    it takes ownership.  Returns a null pointer on failure. */
 struct dir *
@@ -83,6 +85,7 @@ dir_get_inode (struct dir *dir)
   return dir->inode;
 }
 
+// 在dir对应的inode文件中查找name对应的dir_entry(对比从inode中读取到的所有dir_entry)
 /** Searches DIR for a file with the given NAME.
    If successful, returns true, sets *EP to the directory entry
    if EP is non-null, and sets *OFSP to the byte offset of the
@@ -111,6 +114,7 @@ lookup (const struct dir *dir, const char *name,
   return false;
 }
 
+// 根据文件名name在dir中找对应的inode
 /** Searches DIR for a file with the given NAME
    and returns true if one exists, false otherwise.
    On success, sets *INODE to an inode for the file, otherwise to
@@ -132,6 +136,8 @@ dir_lookup (const struct dir *dir, const char *name,
   return *inode != NULL;
 }
 
+// 将文件名为name的文件(inode在inode_sector中)添加到dir目录中,
+// 就是向dir对应的inode文件中加一个dir_entry
 /** Adds a file named NAME to DIR, which must not already contain a
    file by that name.  The file's inode is in sector
    INODE_SECTOR.

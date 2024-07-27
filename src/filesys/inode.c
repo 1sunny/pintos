@@ -10,6 +10,8 @@
 /** Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
+// TODO In-memory inode和On-disk inode区别?
+// In-memory inode(struct inode)中包含存储inode_disk的sector,inode_disk中记录文件实际占用了哪些sector
 /** On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
@@ -20,6 +22,7 @@ struct inode_disk
     uint32_t unused[125];               /**< Not used. */
   };
 
+// 返回size个字节需要的扇区数
 /** Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
 static inline size_t
@@ -39,6 +42,7 @@ struct inode
     struct inode_disk data;             /**< Inode content. */
   };
 
+// 返回包含inode对应文件中第pos个字节所在的扇区编号
 /** Returns the block device sector that contains byte offset POS
    within INODE.
    Returns -1 if INODE does not contain data for a byte at offset
@@ -64,6 +68,7 @@ inode_init (void)
   list_init (&open_inodes);
 }
 
+// 在第sector个扇区处创建一个长度为length的on-disk inode,会维护free map
 /** Initializes an inode with LENGTH bytes of data and
    writes the new inode to sector SECTOR on the file system
    device.
@@ -105,6 +110,7 @@ inode_create (block_sector_t sector, off_t length)
   return success;
 }
 
+// 从第sector个扇区读取on-disk inode, 并返回一个通过malloc分配的struct inode标识这个on-dist inode
 /** Reads an inode from SECTOR
    and returns a `struct inode' that contains it.
    Returns a null pointer if memory allocation fails. */
@@ -157,6 +163,7 @@ inode_get_inumber (const struct inode *inode)
   return inode->sector;
 }
 
+// 关闭文件的inode并将其对应的所有sector写入到磁盘
 /** Closes INODE and writes it to disk.
    If this was the last reference to INODE, frees its memory.
    If INODE was also a removed inode, frees its blocks. */
@@ -194,6 +201,9 @@ inode_remove (struct inode *inode)
   inode->removed = true;
 }
 
+// 从inode对应的文件offset偏移处读取size个字节到buffer_(就是读所有inode中的sectors)
+// 因为没有实现缓冲区,对于一个并不需要完全读取的扇区,
+// 现在还是通过将扇区读到临时分配一个BLOCK_SECTOR_SIZE大小的缓冲区,然后从缓冲区复制指定个数到buffer_
 /** Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.
    Returns the number of bytes actually read, which may be less
    than SIZE if an error occurs or end of file is reached. */
