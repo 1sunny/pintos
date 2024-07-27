@@ -32,9 +32,6 @@ enum vm_type {
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
-#ifdef EFILESYS
-#include "filesys/page_cache.h"
-#endif
 
 struct page_operations;
 struct thread;
@@ -61,9 +58,6 @@ struct page {
 		struct uninit_page uninit;
 		struct anon_page anon;
 		struct file_page file;
-#ifdef EFILESYS
-		struct page_cache page_cache;
-#endif
 	};
 };
 
