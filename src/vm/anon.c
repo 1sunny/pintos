@@ -2,6 +2,7 @@
 
 #include <threads/malloc.h>
 #include <userprog/pagedir.h>
+#include <filesys/buffer_cache.h>
 #include "anon.h"
 #include "vm/vm.h"
 #include "stdio.h"
@@ -82,7 +83,8 @@ anon_swap_in (struct page *page, void *kva) {
       // 这里buffer不能用page->va,应该page->va被映射为不可写,在读的时候会出现page fault,
       // 而在处理page fault的时候又发送page fault,
       // 会导致synch.c中ASSERT (!lock_held_by_current_thread (lock)); Fail
-			block_read(swap_disk, slot->start_sector + i, page->frame->kva + i * BLOCK_SECTOR_SIZE);
+			buffer_cache_read_sector(swap_disk, slot->start_sector + i, page->frame->kva + i * BLOCK_SECTOR_SIZE);
+			// block_read(swap_disk, slot->start_sector + i, page->frame->kva + i * BLOCK_SECTOR_SIZE);
 		}
 		slot->occupied = false;
 		anon_page->swap_slot = NULL;
@@ -104,7 +106,8 @@ anon_swap_out (struct page *page) {
 		ASSERT(slot);
 		// write to swap
 		for (block_sector_t i = 0; i < PGSIZE / BLOCK_SECTOR_SIZE; ++i) {
-			block_write(swap_disk, slot->start_sector + i, page->frame->kva + i * BLOCK_SECTOR_SIZE);
+			buffer_cache_write_sector(swap_disk, slot->start_sector + i, page->frame->kva + i * BLOCK_SECTOR_SIZE);
+			// block_write(swap_disk, slot->start_sector + i, page->frame->kva + i * BLOCK_SECTOR_SIZE);
 		}
 
 		anon_page->swap_slot = slot;

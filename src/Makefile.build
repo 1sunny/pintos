@@ -82,6 +82,7 @@ filesys_SRC += filesys/file.c		# Files.
 filesys_SRC += filesys/directory.c	# Directories.
 filesys_SRC += filesys/inode.c		# File headers.
 filesys_SRC += filesys/fsutil.c		# Utilities.
+filesys_SRC += filesys/buffer_cache.c
 
 # 遍历在变量KERNEL_SUBDIRS中指定的目录列表。
 # 对于每个目录，它将另一个变量的值（通过连接目录名称和_SRC得到，

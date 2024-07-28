@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <filesys/buffer_cache.h>
 #include "devices/block.h"
 #include "threads/malloc.h"
 
@@ -88,7 +89,8 @@ read_partition_table (struct block *block, block_sector_t sector,
   pt = malloc (sizeof *pt);
   if (pt == NULL)
     PANIC ("Failed to allocate memory for partition table.");
-  block_read (block, 0, pt);
+  buffer_cache_read_sector(block, 0, pt);
+  // block_read (block, 0, pt);
 
   /* Check signature. */
   if (pt->signature != 0xaa55)
@@ -304,7 +306,8 @@ static void
 partition_read (void *p_, block_sector_t sector, void *buffer)
 {
   struct partition *p = p_;
-  block_read (p->block, p->start + sector, buffer);
+  buffer_cache_read_sector(p->block, p->start + sector, buffer);
+  // block_read (p->block, p->start + sector, buffer);
 }
 
 /** Write sector SECTOR to partition P from BUFFER, which must
@@ -314,7 +317,8 @@ static void
 partition_write (void *p_, block_sector_t sector, const void *buffer)
 {
   struct partition *p = p_;
-  block_write (p->block, p->start + sector, buffer);
+  buffer_cache_write_sector(p->block, p->start + sector, buffer);
+  // block_write (p->block, p->start + sector, buffer);
 }
 
 static struct block_operations partition_operations =
