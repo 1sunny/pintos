@@ -125,6 +125,9 @@ alloc_indirect_sector (block_sector_t *indirect_sector, size_t base, size_t grow
 
 static bool
 inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
+  if (sectors == 0) {
+    return true;
+  }
   size_t cur_sectors = bytes_to_sectors(inode_disk->length);
   int grow_direct = sectors < N_DIRECT - cur_sectors ? sectors : N_DIRECT - cur_sectors;
   if (grow_direct > 0) {
@@ -144,19 +147,21 @@ inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
       return false;
     }
   }
-
-  int grow_indirects = sectors < N_INDIRECT - cur_sectors ? sectors : N_INDIRECT - cur_sectors;
-  if (grow_indirects > 0) {
-    ASSERT(grow_direct <= N_INDIRECT && cur_sectors - N_DIRECT + grow_indirects <= N_INDIRECT);
-    if (alloc_indirect_sector(&inode_disk->indirect, cur_sectors - N_DIRECT, grow_indirects) == false) {
-      return false;
-    }
-    sectors -= grow_indirects;
-    cur_sectors += grow_indirects;
-    if (sectors == 0) {
-      return true;
-    } else if (alloc_zeroed_sector(&inode_disk->indirect2) == false) {
-      return false;
+  ASSERT(sectors > 0);
+  if (cur_sectors - N_DIRECT < N_INDIRECT) {
+    int grow_indirects = sectors < N_INDIRECT - (cur_sectors - N_DIRECT) ? sectors : N_INDIRECT - (cur_sectors - N_DIRECT);
+    if (grow_indirects > 0) {
+      ASSERT(grow_indirects <= N_INDIRECT && cur_sectors - N_DIRECT + grow_indirects <= N_INDIRECT);
+      if (alloc_indirect_sector(&inode_disk->indirect, cur_sectors - N_DIRECT, grow_indirects) == false) {
+        return false;
+      }
+      sectors -= grow_indirects;
+      cur_sectors += grow_indirects;
+      if (sectors == 0) {
+        return true;
+      } else if (alloc_zeroed_sector(&inode_disk->indirect2) == false) {
+        return false;
+      }
     }
   }
 
@@ -176,7 +181,7 @@ inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
                                    index_indirect * (sizeof indirect_sector));
     }
     int grow = sectors < N_INDIRECT - off_indirect ? sectors : N_INDIRECT - off_indirect;
-    if (alloc_indirect_sector(&indirect_sector, cur_sectors - N_DIRECT, grow) == false) {
+    if (alloc_indirect_sector(&indirect_sector, off_indirect, grow) == false) {
       return false;
     }
     cur_sectors += grow;
