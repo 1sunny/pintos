@@ -2,6 +2,7 @@
 #include <list.h>
 #include <debug.h>
 #include <round.h>
+#include <stdio.h>
 #include <string.h>
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
@@ -11,9 +12,9 @@
 /** Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
-#define N_DIRECT 10
+#define N_DIRECT ((int)10)
 #define N_DIRECT_BYTES (N_DIRECT * BLOCK_SECTOR_SIZE)
-#define N_INDIRECT (BLOCK_SECTOR_SIZE / sizeof(uint32_t))
+#define N_INDIRECT ((int)(BLOCK_SECTOR_SIZE / sizeof(uint32_t)))
 #define N_INDIRECT_BYTES (N_INDIRECT * BLOCK_SECTOR_SIZE)
 #define N_INDIRECT2 (N_INDIRECT * N_INDIRECT)
 #define N_INDIRECT2_BYTES (N_INDIRECT2 * BLOCK_SECTOR_SIZE)
@@ -60,7 +61,7 @@ struct inode
    Returns -1 if INODE does not contain data for a byte at offset
    POS. */
 static int
-byte_to_sector (const struct inode *inode, off_t pos) 
+byte_to_sector (const struct inode *inode, off_t pos)
 {
   ASSERT (inode != NULL);
   if (pos < inode->data.length) {
@@ -101,9 +102,12 @@ inode_init (void)
 }
 
 static bool
-alloc_zeroed_sector (block_sector_t *sector) {
+alloc_zeroed_sector (block_sector_t *sector, bool is_data) {
   if (free_map_allocate (1, sector) == false) {
     return false;
+  }
+  if (is_data) {
+    // printf("alloc: %d\n", *sector);
   }
   static char zeros[BLOCK_SECTOR_SIZE];
   buffer_cache_write_sector(fs_device, *sector, zeros);
@@ -111,11 +115,13 @@ alloc_zeroed_sector (block_sector_t *sector) {
 }
 
 static bool
-alloc_indirect_sector (block_sector_t *indirect_sector, size_t base, size_t grow) {
+alloc_indirect_sector (block_sector_t *indirect_sector, int base, int grow) {
+  ASSERT(*indirect_sector != 0);
+  ASSERT(base >= 0 && grow >= 0);
   ASSERT(base + grow <= N_INDIRECT);
-  for (size_t i = base; i < base + grow; ++i) {
+  for (int i = base; i < base + grow; ++i) {
     block_sector_t cur;
-    if (alloc_zeroed_sector(&cur) == false) {
+    if (alloc_zeroed_sector(&cur, true) == false) {
       return false;
     }
     buffer_cache_write_sector_at(fs_device, *indirect_sector, &cur, sizeof cur, i * (sizeof cur));
@@ -124,16 +130,18 @@ alloc_indirect_sector (block_sector_t *indirect_sector, size_t base, size_t grow
 }
 
 static bool
-inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
+inode_grow_sectors (struct inode_disk *inode_disk, int sectors) {
+  ASSERT(sectors >= 0);
   if (sectors == 0) {
     return true;
   }
-  size_t cur_sectors = bytes_to_sectors(inode_disk->length);
-  int grow_direct = sectors < N_DIRECT - cur_sectors ? sectors : N_DIRECT - cur_sectors;
+  int cur_sectors = bytes_to_sectors(inode_disk->length);
+  // size_t和int比较会把int转为size_t !!!
+  int grow_direct = sectors < (N_DIRECT - cur_sectors) ? sectors : (N_DIRECT - cur_sectors);
   if (grow_direct > 0) {
     ASSERT(cur_sectors + grow_direct <= N_INDIRECT);
-    for (size_t i = cur_sectors; i < cur_sectors + grow_direct; ++i) {
-      if (alloc_zeroed_sector(&inode_disk->direct[i]) == false) {
+    for (int i = cur_sectors; i < cur_sectors + grow_direct; ++i) {
+      if (alloc_zeroed_sector(&inode_disk->direct[i], true) == false) {
         // TODO 应该把之前分配的释放掉
         return false;
       }
@@ -142,12 +150,15 @@ inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
     cur_sectors += grow_direct;
     if (sectors == 0) {
       return true;
-    } else if (alloc_zeroed_sector(&inode_disk->indirect) == false) {
+    }
+  }
+  ASSERT(sectors > 0);
+  if (cur_sectors == N_DIRECT) {
+    if (alloc_zeroed_sector(&inode_disk->indirect, false) == false) {
       // TODO 应该把之前分配的释放掉
       return false;
     }
   }
-  ASSERT(sectors > 0);
   if (cur_sectors - N_DIRECT < N_INDIRECT) {
     int grow_indirects = sectors < N_INDIRECT - (cur_sectors - N_DIRECT) ? sectors : N_INDIRECT - (cur_sectors - N_DIRECT);
     if (grow_indirects > 0) {
@@ -159,19 +170,22 @@ inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
       cur_sectors += grow_indirects;
       if (sectors == 0) {
         return true;
-      } else if (alloc_zeroed_sector(&inode_disk->indirect2) == false) {
-        return false;
       }
     }
   }
-
+  ASSERT(sectors > 0);
+  if (cur_sectors == N_DIRECT + N_INDIRECT) {
+    if (alloc_zeroed_sector(&inode_disk->indirect2, false) == false) {
+      return false;
+    }
+  }
   while (sectors > 0) {
     int base = cur_sectors - N_DIRECT - N_INDIRECT;
     int index_indirect = base / N_INDIRECT;
     int off_indirect = base % N_INDIRECT;
     block_sector_t indirect_sector;
     if (off_indirect == 0) {
-      if (alloc_zeroed_sector(&indirect_sector) == false) {
+      if (alloc_zeroed_sector(&indirect_sector, false) == false) {
         return false;
       }
       buffer_cache_write_sector_at(fs_device, inode_disk->indirect2, &indirect_sector, sizeof indirect_sector,
@@ -180,7 +194,7 @@ inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
       buffer_cache_read_sector_at(fs_device, inode_disk->indirect2, &indirect_sector, sizeof indirect_sector,
                                    index_indirect * (sizeof indirect_sector));
     }
-    int grow = sectors < N_INDIRECT - off_indirect ? sectors : N_INDIRECT - off_indirect;
+    int grow = sectors < (N_INDIRECT - off_indirect) ? sectors : (N_INDIRECT - off_indirect);
     if (alloc_indirect_sector(&indirect_sector, off_indirect, grow) == false) {
       return false;
     }
@@ -341,6 +355,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
     {
       /* Disk sector to read, starting byte offset within sector. */
       int sector_idx = byte_to_sector (inode, offset);
+      // printf("read %d\n", sector_idx);
       if (sector_idx == -1) {
         return 0;
       }
@@ -417,6 +432,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     {
       /* Sector to write, starting byte offset within sector. */
       block_sector_t sector_idx = byte_to_sector (inode, offset);
+      // printf("write %d\n", sector_idx);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
