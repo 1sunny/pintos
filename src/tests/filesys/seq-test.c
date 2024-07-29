@@ -3,6 +3,7 @@
 #include <syscall.h>
 #include "tests/lib.h"
 
+// 创建一个初始大小为0的文件,以block_size_func范围的size不断扩大文件
 void 
 seq_test (const char *file_name, void *buf, size_t size, size_t initial_size,
           size_t (*block_size_func) (void),

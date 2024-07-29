@@ -11,16 +11,27 @@
 /** Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
+#define N_DIRECT 10
+#define N_DIRECT_BYTES (N_DIRECT * BLOCK_SECTOR_SIZE)
+#define N_INDIRECT (BLOCK_SECTOR_SIZE / sizeof(uint32_t))
+#define N_INDIRECT_BYTES (N_INDIRECT * BLOCK_SECTOR_SIZE)
+#define N_INDIRECT2 (N_INDIRECT * N_INDIRECT)
+#define N_INDIRECT2_BYTES (N_INDIRECT2 * BLOCK_SECTOR_SIZE)
+#define MAX_FILE_SIZE (N_DIRECT_BYTES + N_INDIRECT_BYTES + N_INDIRECT2_BYTES)
+
 // TODO In-memory inode和On-disk inode区别?
 // In-memory inode(struct inode)中包含存储inode_disk的sector,inode_disk中记录文件实际占用了哪些sector
 /** On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
-    block_sector_t start;               /**< First data sector. */
+    // block_sector_t start;               /**< First data sector. */
     off_t length;                       /**< File size in bytes. */
+    int direct[N_DIRECT];            /**< Not used. */
+    int indirect;
+    int indirect2;
+    int unused[114];
     unsigned magic;                     /**< Magic number. */
-    uint32_t unused[125];               /**< Not used. */
   };
 
 // 返回size个字节需要的扇区数
@@ -52,10 +63,32 @@ static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   ASSERT (inode != NULL);
-  if (pos < inode->data.length)
-    return inode->data.start + pos / BLOCK_SECTOR_SIZE;
-  else
+  if (pos < inode->data.length) {
+    if (pos <= N_DIRECT_BYTES) {
+      ASSERT(inode->data.direct[pos / BLOCK_SECTOR_SIZE] != -1);
+      return inode->data.direct[pos / BLOCK_SECTOR_SIZE];
+    }
+    pos -= N_DIRECT_BYTES;
+    if (pos < N_INDIRECT_BYTES) {
+      ASSERT(inode->data.indirect != -1);
+      block_sector_t res;
+      buffer_cache_read_sector_at(fs_device, inode->data.indirect, &res, sizeof res, pos / BLOCK_SECTOR_SIZE);
+      return res;
+    }
+    pos -= N_INDIRECT_BYTES;
+    ASSERT(pos <= N_INDIRECT2_BYTES);
+    off_t i = pos / (BLOCK_SECTOR_SIZE / 4 * BLOCK_SECTOR_SIZE);
+    off_t j = pos % (BLOCK_SECTOR_SIZE / 4 * BLOCK_SECTOR_SIZE);
+    off_t k = j / BLOCK_SECTOR_SIZE;
+    block_sector_t res;
+    buffer_cache_read_sector_at(fs_device, inode->data.indirect2, &res, sizeof res, i);
+    buffer_cache_read_sector_at(fs_device, res, &res, sizeof res, k);
+    return res;
+  }
+  else {
+    PANIC("byte_to_sector");
     return -1;
+  }
 }
 
 /** List of open inodes, so that opening a single inode twice
@@ -67,6 +100,91 @@ void
 inode_init (void) 
 {
   list_init (&open_inodes);
+}
+
+static bool
+alloc_zeroed_sector (block_sector_t *sector) {
+  if (free_map_allocate (1, sector) == false) {
+    return false;
+  }
+  static char zeros[BLOCK_SECTOR_SIZE];
+  buffer_cache_write_sector(fs_device, *sector, zeros);
+  return true;
+}
+
+static bool
+alloc_indirect_sector (block_sector_t *indirect_sector, size_t base, size_t grow) {
+  ASSERT(base + grow <= N_INDIRECT);
+  for (size_t i = base; i < base + grow; ++i) {
+    block_sector_t cur;
+    if (alloc_zeroed_sector(&cur) == false) {
+      return false;
+    }
+    buffer_cache_write_sector_at(fs_device, *indirect_sector, &cur, sizeof cur, i * (sizeof cur));
+  }
+  return true;
+}
+
+static bool
+inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
+  size_t cur_sectors = bytes_to_sectors(inode_disk->length);
+  int grow_direct = sectors < N_DIRECT - cur_sectors ? sectors : N_DIRECT - cur_sectors;
+  if (grow_direct > 0) {
+    ASSERT(cur_sectors + grow_direct <= N_INDIRECT);
+    for (size_t i = cur_sectors; i < cur_sectors + grow_direct; ++i) {
+      if (alloc_zeroed_sector(&inode_disk->direct[i]) == false) {
+        // TODO 应该把之前分配的释放掉
+        return false;
+      }
+    }
+    sectors -= grow_direct;
+    cur_sectors += grow_direct;
+    if (sectors == 0) {
+      return true;
+    } else if (alloc_zeroed_sector(&inode_disk->indirect) == false) {
+      // TODO 应该把之前分配的释放掉
+      return false;
+    }
+  }
+  ASSERT(sectors > 0);
+  int grow_indirects = sectors < N_INDIRECT - cur_sectors ? sectors : N_INDIRECT - cur_sectors;
+  if (grow_indirects > 0) {
+    ASSERT(grow_direct <= N_INDIRECT && cur_sectors - N_DIRECT + grow_indirects <= N_INDIRECT);
+    if (alloc_indirect_sector(&inode_disk->indirect, cur_sectors - N_DIRECT, grow_indirects) == false) {
+      return false;
+    }
+    sectors -= grow_indirects;
+    cur_sectors += grow_indirects;
+    if (sectors == 0) {
+      return true;
+    } else if (alloc_zeroed_sector(&inode_disk->indirect2) == false) {
+      return false;
+    }
+  }
+
+  while (sectors > 0) {
+    int base = cur_sectors - N_DIRECT - N_INDIRECT;
+    int index_indirect = base / N_INDIRECT;
+    int off_indirect = base % N_INDIRECT;
+    block_sector_t indirect_sector;
+    if (off_indirect == 0) {
+      if (alloc_zeroed_sector(&indirect_sector) == false) {
+        return false;
+      }
+      buffer_cache_write_sector_at(fs_device, inode_disk->indirect2, &indirect_sector, sizeof indirect_sector,
+                                   index_indirect * (sizeof indirect_sector));
+    } else {
+      buffer_cache_read_sector_at(fs_device, inode_disk->indirect2, &indirect_sector, sizeof indirect_sector,
+                                   index_indirect * (sizeof indirect_sector));
+    }
+    int grow = sectors < N_INDIRECT - off_indirect ? sectors : N_INDIRECT - off_indirect;
+    if (alloc_indirect_sector(&indirect_sector, cur_sectors - N_DIRECT, grow) == false) {
+      return false;
+    }
+    cur_sectors += grow;
+    sectors -= grow;
+  }
+  return true;
 }
 
 // 在第sector个扇区处创建一个长度为length的on-disk inode,会维护free map
@@ -82,6 +200,9 @@ inode_create (block_sector_t sector, off_t length)
   bool success = false;
 
   ASSERT (length >= 0);
+  if (length > MAX_FILE_SIZE) {
+    goto fail;
+  }
 
   /* If this assertion fails, the inode structure is not exactly
      one sector in size, and you should fix that. */
@@ -93,24 +214,15 @@ inode_create (block_sector_t sector, off_t length)
       size_t sectors = bytes_to_sectors (length);
       disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
-      if (free_map_allocate (sectors, &disk_inode->start)) 
-        {
-          buffer_cache_write_sector(fs_device, sector, disk_inode);
-          // block_write (fs_device, sector, disk_inode);
-          if (sectors > 0) 
-            {
-              static char zeros[BLOCK_SECTOR_SIZE];
-              size_t i;
-              
-              for (i = 0; i < sectors; i++)
-                buffer_cache_write_sector(fs_device, disk_inode->start + i, zeros);
-                // block_write (fs_device, disk_inode->start + i, zeros);
-            }
-          success = true; 
-        } 
-      free (disk_inode);
+      if (inode_grow_sectors(disk_inode, sectors) == false) {
+        goto fail;
+      }
     }
-  return success;
+  return true;
+
+fail:
+  free (disk_inode);
+  return false;
 }
 
 // 从第sector个扇区读取on-disk inode, 并返回一个通过malloc分配的struct inode标识这个on-dist inode
@@ -187,9 +299,10 @@ inode_close (struct inode *inode)
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
-          free_map_release (inode->sector, 1);
-          free_map_release (inode->data.start,
-                            bytes_to_sectors (inode->data.length)); 
+        // TODO
+          // free_map_release (inode->sector, 1);
+          // free_map_release (inode->data.start,
+          //                   bytes_to_sectors (inode->data.length)); 
         }
 
       free (inode); 
@@ -246,6 +359,26 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   return bytes_read;
 }
 
+static bool
+inode_grow_to (struct inode *inode, off_t new_size) {
+  if (new_size < 0 || new_size > MAX_FILE_SIZE) {
+    return false;
+  }
+  size_t old_sectors = bytes_to_sectors(inode_length(inode));
+  size_t new_sectors = bytes_to_sectors(new_size);
+  if (new_sectors - old_sectors <= 0) {
+    // TODO set 0
+    inode->data.length = new_size;
+    return true;
+  }
+  if (inode_grow_sectors(&inode->data, new_sectors - old_sectors) == false) {
+    return false;
+  }
+  // TODO set 0
+  inode->data.length = new_size;
+  return true;
+}
+
 /** Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.
    Returns the number of bytes actually written, which may be
    less than SIZE if end of file is reached or an error occurs.
@@ -261,6 +394,15 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
   if (inode->deny_write_cnt)
     return 0;
+
+  if (size < 0 || offset < 0)
+    return 0;
+
+  if (inode_length(inode) < offset + size) {
+    if (inode_grow_to(inode, offset + size) == false) {
+      return 0;
+    }
+  }
 
   while (size > 0) 
     {
