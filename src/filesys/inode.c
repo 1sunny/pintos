@@ -59,12 +59,12 @@ struct inode
    within INODE.
    Returns -1 if INODE does not contain data for a byte at offset
    POS. */
-static block_sector_t
+static int
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   ASSERT (inode != NULL);
   if (pos < inode->data.length) {
-    if (pos <= N_DIRECT_BYTES) {
+    if (pos < N_DIRECT_BYTES) {
       ASSERT(inode->data.direct[pos / BLOCK_SECTOR_SIZE] != -1);
       return inode->data.direct[pos / BLOCK_SECTOR_SIZE];
     }
@@ -72,21 +72,19 @@ byte_to_sector (const struct inode *inode, off_t pos)
     if (pos < N_INDIRECT_BYTES) {
       ASSERT(inode->data.indirect != -1);
       block_sector_t res;
-      buffer_cache_read_sector_at(fs_device, inode->data.indirect, &res, sizeof res, pos / BLOCK_SECTOR_SIZE);
+      buffer_cache_read_sector_at(fs_device, inode->data.indirect, &res, sizeof res, (pos / BLOCK_SECTOR_SIZE) * (sizeof res));
       return res;
     }
     pos -= N_INDIRECT_BYTES;
-    ASSERT(pos <= N_INDIRECT2_BYTES);
-    off_t i = pos / (BLOCK_SECTOR_SIZE / 4 * BLOCK_SECTOR_SIZE);
-    off_t j = pos % (BLOCK_SECTOR_SIZE / 4 * BLOCK_SECTOR_SIZE);
-    off_t k = j / BLOCK_SECTOR_SIZE;
+    ASSERT(pos < N_INDIRECT2_BYTES);
+    off_t i = pos / N_INDIRECT_BYTES;
+    off_t j = (pos % N_INDIRECT_BYTES) / BLOCK_SECTOR_SIZE;
     block_sector_t res;
-    buffer_cache_read_sector_at(fs_device, inode->data.indirect2, &res, sizeof res, i);
-    buffer_cache_read_sector_at(fs_device, res, &res, sizeof res, k);
+    buffer_cache_read_sector_at(fs_device, inode->data.indirect2, &res, sizeof res, i * (sizeof res));
+    buffer_cache_read_sector_at(fs_device, res, &res, sizeof res, j * (sizeof res));
     return res;
   }
   else {
-    PANIC("byte_to_sector");
     return -1;
   }
 }
@@ -146,7 +144,7 @@ inode_grow_sectors (struct inode_disk *inode_disk, size_t sectors) {
       return false;
     }
   }
-  ASSERT(sectors > 0);
+
   int grow_indirects = sectors < N_INDIRECT - cur_sectors ? sectors : N_INDIRECT - cur_sectors;
   if (grow_indirects > 0) {
     ASSERT(grow_direct <= N_INDIRECT && cur_sectors - N_DIRECT + grow_indirects <= N_INDIRECT);
@@ -212,11 +210,13 @@ inode_create (block_sector_t sector, off_t length)
   if (disk_inode != NULL)
     {
       size_t sectors = bytes_to_sectors (length);
-      disk_inode->length = length;
+      disk_inode->length = 0;
       disk_inode->magic = INODE_MAGIC;
       if (inode_grow_sectors(disk_inode, sectors) == false) {
         goto fail;
       }
+      disk_inode->length = length;
+      buffer_cache_write_sector(fs_device, sector, disk_inode);
     }
   return true;
 
@@ -295,7 +295,8 @@ inode_close (struct inode *inode)
     {
       /* Remove from inode list and release lock. */
       list_remove (&inode->elem);
- 
+
+      buffer_cache_write_sector(fs_device, inode->sector, &inode->data);
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
@@ -334,7 +335,10 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   while (size > 0) 
     {
       /* Disk sector to read, starting byte offset within sector. */
-      block_sector_t sector_idx = byte_to_sector (inode, offset);
+      int sector_idx = byte_to_sector (inode, offset);
+      if (sector_idx == -1) {
+        return 0;
+      }
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
