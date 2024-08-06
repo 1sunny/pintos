@@ -179,7 +179,7 @@ syscall_create(struct intr_frame *f) {
   char *file_name = get_arg_str(f, 1);
   int initial_size = get_arg_int(f, 2);
   lock_acquire(&filesys_lock);
-  f->eax = filesys_create(file_name, initial_size);
+  f->eax = filesys_create(file_name, initial_size, false);
   lock_release(&filesys_lock);
 }
 
@@ -428,6 +428,34 @@ syscall_munmap(struct intr_frame *f) {
 }
 
 static void
+syscall_chdir (struct intr_frame *f) {
+  char *dir_path = get_arg_str(f, 1);
+  PANIC("syscall_chdir");
+}
+
+static void
+syscall_mkdir (struct intr_frame *f) {
+  char *dir_path = get_arg_str(f, 1);
+  bool success = filesys_create(dir_path, 0, true);
+  f->eax = success;
+}
+
+static void
+syscall_readdir (struct intr_frame *f) {
+  PANIC("syscall_readdir");
+}
+
+static void
+syscall_isdir (struct intr_frame *f) {
+  PANIC("syscall_isdir");
+}
+
+static void
+syscall_inumber (struct intr_frame *f) {
+  PANIC("syscall_inumber");
+}
+
+static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   thread_current()->esp = f->esp;
@@ -475,6 +503,21 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_MUNMAP:
       syscall_munmap(f);
+      break;
+    case SYS_CHDIR:
+      syscall_chdir(f);
+      break;
+    case SYS_MKDIR:
+      syscall_mkdir(f);
+      break;
+    case SYS_READDIR:
+      syscall_readdir(f);
+      break;
+    case SYS_ISDIR:
+      syscall_isdir(f);
+      break;
+    case SYS_INUMBER:
+      syscall_inumber(f);
       break;
     default:
       printf ("unimplemented system call!\n");

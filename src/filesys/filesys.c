@@ -50,17 +50,26 @@ filesys_done (void)
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
 bool
-filesys_create (const char *name, off_t initial_size) 
+ filesys_create (const char *name, off_t initial_size, bool is_dir)
 {
   block_sector_t inode_sector = 0;
-  // TODO 这里直接使用的root,后续要改
-  struct dir *dir = dir_open_root ();
+
+  struct dir *dir = dir_open_path(name);
+  if (dir == NULL) {
+    return false;
+  }
+  // printf("name: %s\n", name);
+  size_t len = strlen(name);
+  if (len == 0) {
+    return false;
+  }
+
   bool success = (dir != NULL
                      // 分配一个sector当作创建的文件的inode_disk存放位置
                   && free_map_allocate (1, &inode_sector)
                      // 在这个sector上创建inode_disk
                   && inode_create (inode_sector, initial_size)
-                  && dir_add (dir, name, inode_sector));
+                  && dir_add (dir, name, inode_sector, is_dir));
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
   dir_close (dir);
@@ -78,11 +87,12 @@ filesys_create (const char *name, off_t initial_size)
 struct file *
 filesys_open (const char *name)
 {
-  struct dir *dir = dir_open_root ();
+  struct dir *dir = dir_open_path(name);
+  // printf("name: %s\n", name);
   struct inode *inode = NULL;
 
   if (dir != NULL)
-    dir_lookup (dir, name, &inode);
+    dir_lookup (dir, name, &inode, false);
   dir_close (dir);
 
   return file_open (inode);
