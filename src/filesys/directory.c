@@ -17,6 +17,7 @@ struct dir
 struct dir_entry 
   {
     // TODO inode_sector干啥的: 这个目录项对应文件的inode
+    // on-disk inode sector number, 一个struct inode有一个on-disk inode sector number对应的data
     block_sector_t inode_sector;        /**< Sector number of header. */
     char name[NAME_MAX + 1];            /**< Null terminated file name. */
     bool in_use;                        /**< In use or free? */

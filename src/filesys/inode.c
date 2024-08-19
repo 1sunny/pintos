@@ -137,6 +137,7 @@ inode_grow_sectors (struct inode_disk *inode_disk, int sectors) {
   }
   int cur_sectors = bytes_to_sectors(inode_disk->length);
   // size_t和int比较会把int转为size_t !!!
+  // min(要增长的sectors, 能在DIRECT中增长的)
   int grow_direct = sectors < (N_DIRECT - cur_sectors) ? sectors : (N_DIRECT - cur_sectors);
   if (grow_direct > 0) {
     ASSERT(cur_sectors + grow_direct <= N_INDIRECT);
@@ -153,13 +154,16 @@ inode_grow_sectors (struct inode_disk *inode_disk, int sectors) {
     }
   }
   ASSERT(sectors > 0);
+  // 如果cur_sectors恰好等于N_DIRECT,并且现在还要分配sectors>0个扇区,就需要分配inode_disk->indirect
   if (cur_sectors == N_DIRECT) {
     if (alloc_zeroed_sector(&inode_disk->indirect, false) == false) {
       // TODO 应该把之前分配的释放掉
       return false;
     }
   }
+  // 如果INDIRECT中有空余位置
   if (cur_sectors - N_DIRECT < N_INDIRECT) {
+    // min(要增长的sectors, 能在INDIRECT中增长的)
     int grow_indirects = sectors < N_INDIRECT - (cur_sectors - N_DIRECT) ? sectors : N_INDIRECT - (cur_sectors - N_DIRECT);
     if (grow_indirects > 0) {
       ASSERT(grow_indirects <= N_INDIRECT && cur_sectors - N_DIRECT + grow_indirects <= N_INDIRECT);
@@ -184,7 +188,9 @@ inode_grow_sectors (struct inode_disk *inode_disk, int sectors) {
     int index_indirect = base / N_INDIRECT;
     int off_indirect = base % N_INDIRECT;
     block_sector_t indirect_sector;
+    // off_indirect:这个indirect中已有的sector数量
     if (off_indirect == 0) {
+      // 这个indirect槽还没分配(off_indirect = 0),需要分配
       if (alloc_zeroed_sector(&indirect_sector, false) == false) {
         return false;
       }
@@ -329,6 +335,8 @@ inode_close (struct inode *inode)
     }
 }
 
+// TODO inode什么时候free呢? inode_close
+// 一个进程退出时需要关闭它打开的文件,之前已经实现了
 /** Marks INODE to be deleted when it is closed by the last caller who
    has it open. */
 void
