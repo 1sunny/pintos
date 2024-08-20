@@ -5,6 +5,8 @@
 #include <filesys/filesys.h>
 #include <filesys/file.h>
 #include <devices/input.h>
+#include <filesys/directory.h>
+#include <filesys/inode.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "process.h"
@@ -427,10 +429,31 @@ syscall_munmap(struct intr_frame *f) {
   }
 }
 
+// Changes the current working directory of the process to dir, which may be relative or absolute.
 static void
 syscall_chdir (struct intr_frame *f) {
   char *dir_path = get_arg_str(f, 1);
-  PANIC("syscall_chdir");
+  struct dir *dir = dir_open_path(dir_path);
+  if (dir == NULL) {
+    f->eax = 0;
+    return;
+  }
+  const char *file_name = strrchr(dir_path, '/');
+  if (file_name != NULL) {
+    file_name++;
+  } else {
+    file_name = dir_path;
+  }
+  // printf("file_name: %s, dir->inode->sector: %d\n", file_name, inode_get_inumber(dir_get_inode(dir)));
+  struct inode *inode = NULL;
+  dir_lookup(dir, file_name, &inode, true);
+  if (inode == NULL) {
+    f->eax = 0;
+    return;
+  }
+  thread_current()->current_dir_sector = inode_get_inumber(inode);
+  // printf("current_dir_sector: %d\n", inode_get_inumber(inode));
+  f->eax = 1;
 }
 
 static void

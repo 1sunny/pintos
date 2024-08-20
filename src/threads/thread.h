@@ -173,6 +173,7 @@ struct thread
     uint32_t stack_bottom;
     mapid_t next_mapid;
 #endif
+    block_sector_t current_dir_sector;
 };
 
 /** If false (default), use round-robin scheduler.

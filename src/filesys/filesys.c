@@ -59,17 +59,20 @@ bool
     return false;
   }
   // printf("name: %s\n", name);
-  size_t len = strlen(name);
-  if (len == 0) {
-    return false;
+  const char *file_name = strrchr(name, '/');
+  if (file_name != NULL) {
+    file_name++;
+  } else {
+    file_name = name;
   }
+  // printf("file_name: %s, dir->inode->sector: %d\n", file_name, inode_get_inumber(dir_get_inode(dir)));
 
   bool success = (dir != NULL
                      // 分配一个sector当作创建的文件的inode_disk存放位置
                   && free_map_allocate (1, &inode_sector)
                      // 在这个sector上创建inode_disk
-                  && inode_create (inode_sector, initial_size)
-                  && dir_add (dir, name, inode_sector, is_dir));
+                  && (is_dir ? dir_create(inode_sector, 0, inode_get_inumber(dir_get_inode(dir))) : inode_create (inode_sector, initial_size))
+                  && dir_add (dir, file_name, inode_sector, is_dir));
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
   dir_close (dir);
@@ -118,7 +121,7 @@ do_format (void)
 {
   printf ("Formatting file system...");
   free_map_create ();
-  if (!dir_create (ROOT_DIR_SECTOR, 16))
+  if (!dir_create (ROOT_DIR_SECTOR, 16, ROOT_DIR_SECTOR))
     PANIC ("root directory creation failed");
   free_map_close ();
   printf ("done.\n");

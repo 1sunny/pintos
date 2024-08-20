@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <list.h>
+#include <threads/thread.h>
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
@@ -27,9 +28,20 @@ struct dir_entry
 /** Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
-dir_create (block_sector_t sector, size_t entry_cnt)
+dir_create (block_sector_t sector, size_t entry_cnt, block_sector_t parent_dir_sector)
 {
-  return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+  bool success = inode_create (sector, sizeof (block_sector_t) + entry_cnt * sizeof (struct dir_entry));
+  if (success) {
+    struct inode *inode = inode_open (sector);
+    ASSERT(inode != NULL);
+
+    if (inode_write_at (inode, &parent_dir_sector, sizeof parent_dir_sector, 0) != sizeof (parent_dir_sector)) {
+      success = false;
+    }
+
+    inode_close(inode);
+  }
+  return success;
 }
 
 // 为inode创建一个dir来表示目录当前状态(pos)
@@ -42,7 +54,7 @@ dir_open (struct inode *inode)
   if (inode != NULL && dir != NULL)
     {
       dir->inode = inode;
-      dir->pos = 0;
+      dir->pos = sizeof (block_sector_t);
       return dir;
     }
   else
@@ -69,18 +81,27 @@ dir_open_path (const char *path)
   // TODO 这里直接使用的root,后续要改
   // TODO 改成open当前进程的pwd或者root(如果name里第一个是/)
   // TODO 现在先不考虑结尾可以是/的情况
-  struct dir *dir = dir_open_root ();
+  // /a/b/c, 只会打开/a/b, 从pwd打开到最后的/
+  struct dir *dir;
+  int slash_index = next_slash(path);
+  if (slash_index == 0) {
+    dir = dir_open_root ();
+    path++;
+  } else {
+    dir = dir_open_pwd();
+  }
   while (true) {
     char entry_name[15];
-    int slash_index = next_slash(path);
+    slash_index = next_slash(path);
     if (slash_index == -1) {
       break;
     }
     ASSERT(slash_index < 15);
     if (slash_index == 0) {
+      // TODO 处理 //
       PANIC("filesys_create");
     }
-    strlcpy(entry_name, path, slash_index);
+    strlcpy(entry_name, path, slash_index + 1);
     // printf("entry name: %s\n", entry_name);
     // TODO ., ..
     ASSERT(path[slash_index] == '/');
@@ -95,6 +116,12 @@ dir_open_path (const char *path)
     dir = dir_open(inode);
   }
   return dir;
+}
+
+struct dir *
+dir_open_pwd (void)
+{
+  return dir_open (inode_open (thread_current()->current_dir_sector));
 }
 
 /** Opens the root directory and returns a directory for it.
@@ -147,7 +174,7 @@ lookup (const struct dir *dir, const char *name,
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
-  for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  for (ofs = sizeof (block_sector_t); inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
     if (e.in_use && !strcmp (name, e.name)) 
       {
@@ -213,6 +240,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is
   if (lookup (dir, name, NULL, NULL))
     goto done;
 
+  // 如果没有空闲位置, 则将设置为当前的文件末尾, 自动扩容
   /* Set OFS to offset of free slot.
      If there are no free slots, then it will be set to the
      current end-of-file.
@@ -220,7 +248,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is
      inode_read_at() will only return a short read at end of file.
      Otherwise, we'd need to verify that we didn't get a short
      read due to something intermittent such as low memory. */
-  for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  for (ofs = sizeof (block_sector_t); inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
     if (!e.in_use)
       break;

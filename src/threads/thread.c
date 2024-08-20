@@ -655,6 +655,10 @@ init_thread (struct thread *t, const char *name, int priority)
 
   t->next_mapid = 0;
 
+  // TODO pthread时需要重写, When one process starts another with the
+  // exec system call, the child process inherits its parent's current directory.
+  t->current_dir_sector = ROOT_DIR_SECTOR;
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
