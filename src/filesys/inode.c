@@ -31,7 +31,8 @@ struct inode_disk
     int direct[N_DIRECT];            /**< Not used. */
     int indirect;
     int indirect2;
-    int unused[114];
+    enum FILE_TYPE file_type;
+    char unused[BLOCK_SECTOR_SIZE - sizeof (off_t) - (N_DIRECT + 2) * sizeof (int) - sizeof (enum FILE_TYPE) - sizeof (unsigned)];
     unsigned magic;                     /**< Magic number. */
   };
 
@@ -54,6 +55,12 @@ struct inode
     int deny_write_cnt;                 /**< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /**< Inode content. */
   };
+
+enum FILE_TYPE
+inode_get_file_type (struct inode *inode) {
+  ASSERT(inode->data.file_type != UNKNOWN);
+  return inode->data.file_type;
+}
 
 // 返回包含inode对应文件中第pos个字节所在的扇区编号
 /** Returns the block device sector that contains byte offset POS
@@ -217,8 +224,10 @@ inode_grow_sectors (struct inode_disk *inode_disk, int sectors) {
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool
-inode_create (block_sector_t sector, off_t length)
+inode_create (block_sector_t sector, off_t length, enum FILE_TYPE file_type)
 {
+  ASSERT(file_type != UNKNOWN);
+
   struct inode_disk *disk_inode = NULL;
   bool success = false;
 
@@ -241,6 +250,7 @@ inode_create (block_sector_t sector, off_t length)
         goto fail;
       }
       disk_inode->length = length;
+      disk_inode->file_type = file_type;
       buffer_cache_write_sector(fs_device, sector, disk_inode);
     }
   return true;

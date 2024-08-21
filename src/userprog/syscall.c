@@ -292,7 +292,12 @@ syscall_write(struct intr_frame *f) {
     struct open_file *of = find_open_file(fd);
     if (of) {
       lock_acquire(&filesys_lock);
-      f->eax = file_write(of->file, buf, size);
+      // dir不能写
+      if (inode_get_file_type(file_get_inode(of->file)) != REGULAR) {
+        f->eax = -1;
+      } else {
+        f->eax = file_write(of->file, buf, size);
+      }
       lock_release(&filesys_lock);
     } else {
       f->eax = -1;

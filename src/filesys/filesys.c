@@ -71,7 +71,7 @@ bool
                      // 分配一个sector当作创建的文件的inode_disk存放位置
                   && free_map_allocate (1, &inode_sector)
                      // 在这个sector上创建inode_disk
-                  && (is_dir ? dir_create(inode_sector, 0, inode_get_inumber(dir_get_inode(dir))) : inode_create (inode_sector, initial_size))
+                  && (is_dir ? dir_create(inode_sector, 0, inode_get_inumber(dir_get_inode(dir))) : inode_create (inode_sector, initial_size, REGULAR))
                   && dir_add (dir, file_name, inode_sector, is_dir));
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
@@ -108,6 +108,7 @@ filesys_open (const char *name)
 bool
 filesys_remove (const char *name) 
 {
+  // TODO
   struct dir *dir = dir_open_root ();
   bool success = dir != NULL && dir_remove (dir, name);
   dir_close (dir); 

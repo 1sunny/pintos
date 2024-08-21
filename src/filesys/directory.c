@@ -30,7 +30,7 @@ struct dir_entry
 bool
 dir_create (block_sector_t sector, size_t entry_cnt, block_sector_t parent_dir_sector)
 {
-  bool success = inode_create (sector, sizeof (block_sector_t) + entry_cnt * sizeof (struct dir_entry));
+  bool success = inode_create (sector, sizeof (block_sector_t) + entry_cnt * sizeof (struct dir_entry), DIRECTORY);
   if (success) {
     struct inode *inode = inode_open (sector);
     ASSERT(inode != NULL);
