@@ -30,12 +30,26 @@ struct dir_entry
 bool
 dir_create (block_sector_t sector, size_t entry_cnt, block_sector_t parent_dir_sector)
 {
-  bool success = inode_create (sector, sizeof (block_sector_t) + entry_cnt * sizeof (struct dir_entry), DIRECTORY);
+  // inode_create中会把内容清零
+  bool success = inode_create (sector, (entry_cnt + 2) * sizeof (struct dir_entry), DIRECTORY);
   if (success) {
     struct inode *inode = inode_open (sector);
     ASSERT(inode != NULL);
 
-    if (inode_write_at (inode, &parent_dir_sector, sizeof parent_dir_sector, 0) != sizeof (parent_dir_sector)) {
+    struct dir_entry entry;
+    entry.inode_sector = sector;
+    strlcpy(entry.name, ".", 2);
+    entry.in_use = true;
+    entry.is_dir = true;
+    if (inode_write_at (inode, &entry, sizeof entry, 0) != sizeof (entry)) {
+      success = false;
+    }
+
+    entry.inode_sector = parent_dir_sector;
+    strlcpy(entry.name, "..", 3);
+    entry.in_use = true;
+    entry.is_dir = true;
+    if (inode_write_at (inode, &entry, sizeof entry, sizeof (struct dir_entry)) != sizeof (entry)) {
       success = false;
     }
 
@@ -54,7 +68,7 @@ dir_open (struct inode *inode)
   if (inode != NULL && dir != NULL)
     {
       dir->inode = inode;
-      dir->pos = sizeof (block_sector_t);
+      dir->pos = 2 * sizeof (struct dir_entry);
       return dir;
     }
   else
@@ -111,8 +125,10 @@ dir_open_path (const char *path)
     dir_lookup(dir, entry_name, &inode, true);
     if (inode == NULL) {
       // TODO dir_close
-      return false;
+      dir_close(dir);
+      return NULL;
     }
+    dir_close(dir);
     dir = dir_open(inode);
   }
   return dir;
@@ -174,7 +190,7 @@ lookup (const struct dir *dir, const char *name,
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
-  for (ofs = sizeof (block_sector_t); inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
     if (e.in_use && !strcmp (name, e.name)) 
       {
@@ -248,7 +264,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is
      inode_read_at() will only return a short read at end of file.
      Otherwise, we'd need to verify that we didn't get a short
      read due to something intermittent such as low memory. */
-  for (ofs = sizeof (block_sector_t); inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
     if (!e.in_use)
       break;

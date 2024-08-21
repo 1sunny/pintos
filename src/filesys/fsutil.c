@@ -20,6 +20,7 @@ fsutil_ls (char **argv UNUSED)
   char name[NAME_MAX + 1];
   
   printf ("Files in the root directory:\n");
+  // TODO
   dir = dir_open_root ();
   if (dir == NULL)
     PANIC ("root dir open failed");

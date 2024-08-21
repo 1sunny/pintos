@@ -110,6 +110,8 @@ filesys_open (const char *name)
   return file_open (inode);
 }
 
+// 不能删除/
+// remove /a/*/, 最后带/不允许
 /** Deletes the file named NAME.
    Returns true if successful, false on failure.
    Fails if no file named NAME exists,
@@ -118,8 +120,9 @@ bool
 filesys_remove (const char *name) 
 {
   // TODO
-  struct dir *dir = dir_open_root ();
-  bool success = dir != NULL && dir_remove (dir, name);
+  struct dir *dir = dir_open_path(name);
+  const char *file_name = get_path_file_name(name);
+  bool success = dir != NULL && dir_remove (dir, file_name);
   dir_close (dir); 
 
   return success;
