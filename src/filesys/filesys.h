@@ -16,6 +16,7 @@ struct block *fs_device;
 
 void filesys_init (bool format);
 void filesys_done (void);
+const char* get_path_file_name (const char *path);
  bool filesys_create (const char *name, off_t initial_size, bool is_dir);
 struct file *filesys_open (const char *name);
 bool filesys_remove (const char *name);

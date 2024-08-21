@@ -443,12 +443,7 @@ syscall_chdir (struct intr_frame *f) {
     f->eax = 0;
     return;
   }
-  const char *file_name = strrchr(dir_path, '/');
-  if (file_name != NULL) {
-    file_name++;
-  } else {
-    file_name = dir_path;
-  }
+  const char *file_name = get_path_file_name(dir_path);
   // printf("file_name: %s, dir->inode->sector: %d\n", file_name, inode_get_inumber(dir_get_inode(dir)));
   struct inode *inode = NULL;
   dir_lookup(dir, file_name, &inode, true);

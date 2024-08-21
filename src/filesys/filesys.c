@@ -45,6 +45,18 @@ filesys_done (void)
   free_map_close ();
 }
 
+
+const char*
+get_path_file_name (const char *path) {
+  const char *file_name = strrchr(path, '/');
+  if (file_name != NULL) {
+    file_name++;
+  } else {
+    file_name = path;
+  }
+  return file_name;
+}
+
 /** Creates a file named NAME with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
@@ -59,12 +71,7 @@ bool
     return false;
   }
   // printf("name: %s\n", name);
-  const char *file_name = strrchr(name, '/');
-  if (file_name != NULL) {
-    file_name++;
-  } else {
-    file_name = name;
-  }
+  const char *file_name = get_path_file_name(name);
   // printf("file_name: %s, dir->inode->sector: %d\n", file_name, inode_get_inumber(dir_get_inode(dir)));
 
   bool success = (dir != NULL
@@ -94,8 +101,10 @@ filesys_open (const char *name)
   // printf("name: %s\n", name);
   struct inode *inode = NULL;
 
+  const char *file_name = get_path_file_name(name);
+
   if (dir != NULL)
-    dir_lookup (dir, name, &inode, false);
+    dir_lookup (dir, file_name, &inode, false);
   dir_close (dir);
 
   return file_open (inode);
