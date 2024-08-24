@@ -326,6 +326,27 @@ inode_get_inumber (const struct inode *inode)
   return inode->sector;
 }
 
+static void
+inode_free_indirect (block_sector_t curr_sector, size_t sectors, int level) {
+  if (level == 0) {
+    free_map_release (curr_sector, 1);
+    return;
+  }
+  block_sector_t blocks[N_INDIRECT];
+  buffer_cache_read_sector(fs_device, curr_sector, blocks);
+
+  size_t unit = (level == 1 ? 1 : N_INDIRECT);
+
+  for (size_t i = 0; i < DIV_ROUND_UP(sectors, unit); ++ i) {
+    size_t subsize = sectors < unit ? sectors : unit;
+    inode_free_indirect (blocks[i], subsize, level - 1);
+    sectors -= subsize;
+  }
+
+  ASSERT (sectors == 0);
+  free_map_release (curr_sector, 1);
+}
+
 // 关闭文件的inode并将其对应的所有sector写入到磁盘
 /** Closes INODE and writes it to disk.
    If this was the last reference to INODE, frees its memory.
@@ -348,9 +369,30 @@ inode_close (struct inode *inode)
       if (inode->removed) 
         {
         // TODO
-          // free_map_release (inode->sector, 1);
-          // free_map_release (inode->data.start,
-          //                   bytes_to_sectors (inode->data.length)); 
+          free_map_release (inode->sector, 1);
+          off_t file_length = inode->data.length;
+          if(file_length > 0) {
+            size_t sectors = bytes_to_sectors(file_length);
+            size_t free_direct = sectors < N_DIRECT ? sectors : N_DIRECT;
+            for (size_t i = 0; i < free_direct; ++ i) {
+              free_map_release (inode->data.direct[i], 1);
+            }
+            sectors -= free_direct;
+
+            size_t free_indirect = sectors < N_INDIRECT ? sectors : N_INDIRECT;
+            if(free_indirect > 0) {
+              inode_free_indirect (inode->data.indirect, free_indirect, 1);
+              sectors -= free_indirect;
+            }
+
+            size_t free_indirect2 = sectors < N_INDIRECT2 ? sectors : N_INDIRECT2;
+            if(free_indirect2 > 0) {
+              inode_free_indirect (inode->data.indirect2, free_indirect2, 2);
+              sectors -= free_indirect2;
+            }
+
+            ASSERT (sectors == 0);
+          }
         }
 
       free (inode); 
