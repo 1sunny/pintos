@@ -98,12 +98,15 @@ bool
 struct file *
 filesys_open (const char *name)
 {
-  struct dir *dir = dir_open_path(name);
-  if (dir == NULL) {
-    return file_open (NULL);
-  }
   // printf("name: %s\n", name);
   struct inode *inode = NULL;
+  if (strlen(name) == 0) {
+    goto done;
+  }
+  struct dir *dir = dir_open_path(name);
+  if (dir == NULL) {
+    goto done;
+  }
 
   const char *file_name = get_path_file_name(name);
 
@@ -115,6 +118,7 @@ filesys_open (const char *name)
   }
   dir_close (dir);
 
+done:
   return file_open (inode);
 }
 
