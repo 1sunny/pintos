@@ -319,7 +319,7 @@ dir_remove (struct dir *dir, const char *name)
     struct dir *removing_dir = dir_open(inode);
     ASSERT(removing_dir != NULL);
     // 除了 . 和 .. 还有其它文件
-    if (dir_get_file_count(removing_dir) > 2) {
+    if (dir_get_file_count(removing_dir) > 0) {
       dir_close(removing_dir);
       goto done;
     }
@@ -372,6 +372,7 @@ dir_get_file_count (struct dir *dir)
     {
       count++;
     }
+    dir->pos += sizeof e;
   }
   return count;
 }
