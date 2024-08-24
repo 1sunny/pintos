@@ -7,6 +7,7 @@
 #include <devices/input.h>
 #include <filesys/directory.h>
 #include <filesys/inode.h>
+#include <user/syscall.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "process.h"
@@ -208,16 +209,22 @@ syscall_open(struct intr_frame *f) {
 
   lock_acquire(&filesys_lock);
   struct file *file = filesys_open(file_name);
-  lock_release(&filesys_lock);
 
   if (file) {
     of->file = file;
+    struct inode *inode = file_get_inode(file);
+    if (inode_get_file_type(inode) == DIRECTORY) {
+      of->dir = dir_open(inode_reopen(inode));
+    } else {
+      of->dir = NULL;
+    }
     list_push_back(&curr->open_file_list, &of->elem);
     f->eax = fd;
   } else {
     free(of);
     f->eax = -1;
   }
+  lock_release(&filesys_lock);
 }
 
 static struct open_file*
@@ -345,6 +352,10 @@ syscall_close(struct intr_frame *f) {
     if (of) {
       list_remove(&of->elem);
       lock_acquire(&filesys_lock);
+      if (of->dir) {
+        dir_close(of->dir);
+      }
+      ASSERT(of->file);
       file_close(of->file);
       free(of);
       lock_release(&filesys_lock);
@@ -473,21 +484,23 @@ syscall_mkdir (struct intr_frame *f) {
 static void
 syscall_readdir (struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
+  void *buf = get_buf(f, 2, READDIR_MAX_LEN + 1, true);
+  f->eax = 0;
   struct open_file *of = find_open_file(fd);
   if (of) {
-    // lock_acquire(&filesys_lock);
-    // struct inode *inode = file_get_inode(of->file);
-    // enum FILE_TYPE type = inode_get_file_type(inode);
-    // lock_release(&filesys_lock);
-    f->eax = 0;
-  } else {
-    f->eax = 0;
+    lock_acquire(&filesys_lock);
+    struct inode *inode = file_get_inode(of->file);
+    if (inode_get_file_type(inode) == DIRECTORY) {
+      f->eax = dir_readdir(of->dir, buf);
+    }
+    lock_release(&filesys_lock);
   }
 }
 
 static void
 syscall_isdir (struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
+  f->eax = 0;
   struct open_file *of = find_open_file(fd);
   if (of) {
     lock_acquire(&filesys_lock);
@@ -495,8 +508,6 @@ syscall_isdir (struct intr_frame *f) {
     enum FILE_TYPE type = inode_get_file_type(inode);
     lock_release(&filesys_lock);
     f->eax = type == DIRECTORY;
-  } else {
-    f->eax = -1;
   }
 }
 

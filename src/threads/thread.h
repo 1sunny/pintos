@@ -46,6 +46,7 @@ struct child_info {
 struct open_file {
     struct file *file;
     int fd;
+    struct dir *dir;
     struct list_elem elem;
 };
 
