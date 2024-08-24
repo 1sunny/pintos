@@ -120,6 +120,14 @@ start_process (void *args)
 
   // ((char*)args)[strlen(args)] = ' ';
 
+  // main thread没有pwd, 因为main thread初始化时filesys还没初始化, 不能打开dir
+  if (curr->parent != NULL && curr->parent->pwd != NULL) {
+    curr->pwd = dir_reopen(curr->parent->pwd);
+  }
+  else {
+    curr->pwd = dir_open_root();
+  }
+
   curr->parent->exec_result = curr->tid;
   sema_up(&curr->parent->exec_sema);
   // load中调用setup_stack设置好了esp指向PHY_BASE
@@ -215,6 +223,10 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  if(cur->pwd) {
+    dir_close (cur->pwd);
+  }
+
 #ifdef VM
   supplemental_page_table_kill (&cur->spt);
 #endif

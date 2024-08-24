@@ -14,6 +14,8 @@ struct bitmap;
 void inode_init (void);
 bool inode_create (block_sector_t, off_t, enum FILE_TYPE);
 struct inode *inode_open (block_sector_t);
+block_sector_t inode_get_sector (struct inode *inode);
+int inode_get_open_cnt (struct inode *inode);
 enum FILE_TYPE inode_get_file_type (struct inode *inode);
 struct inode *inode_reopen (struct inode *);
 block_sector_t inode_get_inumber (const struct inode *);

@@ -446,12 +446,19 @@ syscall_chdir (struct intr_frame *f) {
   const char *file_name = get_path_file_name(dir_path);
   // printf("file_name: %s, dir->inode->sector: %d\n", file_name, inode_get_inumber(dir_get_inode(dir)));
   struct inode *inode = NULL;
-  dir_lookup(dir, file_name, &inode, true);
+  if (strlen(file_name) == 0) {
+    // 如果路径以/结尾, 比如 /a/, file_name为 ""
+    inode = dir_get_inode(dir);
+  } else {
+    dir_lookup (dir, file_name, &inode, false);
+  }
+  dir_close (dir);
   if (inode == NULL) {
     f->eax = 0;
     return;
   }
-  thread_current()->current_dir_sector = inode_get_inumber(inode);
+  dir_close(thread_current()->pwd);
+  thread_current()->pwd = dir_open(inode);
   // printf("current_dir_sector: %d\n", inode_get_inumber(inode));
   f->eax = 1;
 }
@@ -465,17 +472,46 @@ syscall_mkdir (struct intr_frame *f) {
 
 static void
 syscall_readdir (struct intr_frame *f) {
-  PANIC("syscall_readdir");
+  int fd = get_arg_int(f, 1);
+  struct open_file *of = find_open_file(fd);
+  if (of) {
+    // lock_acquire(&filesys_lock);
+    // struct inode *inode = file_get_inode(of->file);
+    // enum FILE_TYPE type = inode_get_file_type(inode);
+    // lock_release(&filesys_lock);
+    f->eax = 0;
+  } else {
+    f->eax = 0;
+  }
 }
 
 static void
 syscall_isdir (struct intr_frame *f) {
-  PANIC("syscall_isdir");
+  int fd = get_arg_int(f, 1);
+  struct open_file *of = find_open_file(fd);
+  if (of) {
+    lock_acquire(&filesys_lock);
+    struct inode *inode = file_get_inode(of->file);
+    enum FILE_TYPE type = inode_get_file_type(inode);
+    lock_release(&filesys_lock);
+    f->eax = type == DIRECTORY;
+  } else {
+    f->eax = -1;
+  }
 }
 
 static void
 syscall_inumber (struct intr_frame *f) {
-  PANIC("syscall_inumber");
+  int fd = get_arg_int(f, 1);
+  struct open_file *of = find_open_file(fd);
+  if (of) {
+    lock_acquire(&filesys_lock);
+    struct inode *inode = file_get_inode(of->file);
+    f->eax = inode_get_sector(inode);
+    lock_release(&filesys_lock);
+  } else {
+    f->eax = -1;
+  }
 }
 
 static void

@@ -102,7 +102,13 @@ dir_open_path (const char *path)
     dir = dir_open_root ();
     path++;
   } else {
-    dir = dir_open_pwd();
+    if (thread_current()->pwd == NULL) {
+      // main thread没有pwd
+      // pintos_init -> run_actions -> fsutil_extract -> filesys_create -> dir_open_path
+      dir = dir_open_root ();
+    } else {
+      dir = dir_reopen(thread_current()->pwd);
+    }
   }
   while (true) {
     char entry_name[15];
@@ -134,11 +140,11 @@ dir_open_path (const char *path)
   return dir;
 }
 
-struct dir *
-dir_open_pwd (void)
-{
-  return dir_open (inode_open (thread_current()->current_dir_sector));
-}
+// struct dir *
+// dir_open_pwd (void)
+// {
+//   return dir_open (inode_open (thread_current()->current_dir_sector));
+// }
 
 /** Opens the root directory and returns a directory for it.
    Return true if successful, false on failure. */
@@ -171,6 +177,9 @@ dir_close (struct dir *dir)
 struct inode *
 dir_get_inode (struct dir *dir) 
 {
+  if (dir == NULL) {
+    return NULL;
+  }
   return dir->inode;
 }
 
@@ -303,6 +312,20 @@ dir_remove (struct dir *dir, const char *name)
   if (inode == NULL)
     goto done;
 
+  if (inode_get_file_type(inode) == DIRECTORY) {
+    if (inode_get_open_cnt(inode) > 1) {
+      goto done;
+    }
+    struct dir *removing_dir = dir_open(inode);
+    ASSERT(removing_dir != NULL);
+    // 除了 . 和 .. 还有其它文件
+    if (dir_get_file_count(removing_dir) > 2) {
+      dir_close(removing_dir);
+      goto done;
+    }
+    dir_close(removing_dir);
+  }
+
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 
@@ -335,4 +358,20 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
         } 
     }
   return false;
+}
+
+size_t
+dir_get_file_count (struct dir *dir)
+{
+  size_t count = 0;
+  struct dir_entry e;
+
+  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e)
+  {
+    if (e.in_use)
+    {
+      count++;
+    }
+  }
+  return count;
 }

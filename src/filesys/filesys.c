@@ -57,6 +57,7 @@ get_path_file_name (const char *path) {
   return file_name;
 }
 
+// remove /a/*/, 最后带/不允许
 /** Creates a file named NAME with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
@@ -98,13 +99,20 @@ struct file *
 filesys_open (const char *name)
 {
   struct dir *dir = dir_open_path(name);
+  if (dir == NULL) {
+    return file_open (NULL);
+  }
   // printf("name: %s\n", name);
   struct inode *inode = NULL;
 
   const char *file_name = get_path_file_name(name);
 
-  if (dir != NULL)
+  if (strlen(file_name) == 0) {
+    // 如果路径以/结尾, 比如 /a/, file_name为 ""
+    inode = dir_get_inode(dir);
+  } else {
     dir_lookup (dir, file_name, &inode, false);
+  }
   dir_close (dir);
 
   return file_open (inode);

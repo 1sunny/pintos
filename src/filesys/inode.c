@@ -56,6 +56,18 @@ struct inode
     struct inode_disk data;             /**< Inode content. */
   };
 
+block_sector_t
+inode_get_sector (struct inode *inode) {
+  ASSERT(inode != NULL);
+  return inode->sector;
+}
+
+int
+inode_get_open_cnt (struct inode *inode) {
+  ASSERT(inode != NULL);
+  return inode->open_cnt;
+}
+
 enum FILE_TYPE
 inode_get_file_type (struct inode *inode) {
   ASSERT(inode->data.file_type != UNKNOWN);

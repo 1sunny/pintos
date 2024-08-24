@@ -6,6 +6,7 @@
 #include <string.h>
 #include <filesys/file.h>
 #include <filesys/filesys.h>
+#include <filesys/directory.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -121,7 +122,8 @@ thread_init (void)
 
 // pintos_init中唯一调用
 // 用于开起抢占式调度,开启之前只有main一个线程,Called by pintos_init()
-// 创建idle thread, 这个线程在其它现在阻塞时被scheduled
+// 创建idle thread(min priority), 这个线程在其它现在阻塞时被scheduled
+// TODO main线程会被阻塞吗?
 /** Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
 void
@@ -295,7 +297,7 @@ thread_block (void)
   thread_current ()->status = THREAD_BLOCKED;
   // 主动调用schedule
   schedule ();
-  // schedule后谁来开中断?
+  // schedule后谁来开中断? 好像笔记里记录了
 }
 
 /** Transitions a blocked thread T to the ready-to-run state.
@@ -654,10 +656,6 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->open_file_list);
 
   t->next_mapid = 0;
-
-  // TODO pthread时需要重写, When one process starts another with the
-  // exec system call, the child process inherits its parent's current directory.
-  t->current_dir_sector = ROOT_DIR_SECTOR;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
