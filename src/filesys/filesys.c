@@ -43,6 +43,7 @@ void
 filesys_done (void) 
 {
   free_map_close ();
+  buffer_cache_done();
 }
 
 

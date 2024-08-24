@@ -119,7 +119,8 @@ dir_open_path (const char *path)
     ASSERT(slash_index < 15);
     if (slash_index == 0) {
       // TODO 处理 //
-      PANIC("filesys_create");
+      path++;
+      continue;
     }
     strlcpy(entry_name, path, slash_index + 1);
     // printf("entry name: %s\n", entry_name);
