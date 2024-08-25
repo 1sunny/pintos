@@ -429,7 +429,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       int sector_idx = byte_to_sector (inode, offset);
       // printf("read %d\n", sector_idx);
       if (sector_idx == -1) {
-        return 0;
+        break;
       }
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
