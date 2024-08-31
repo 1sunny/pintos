@@ -71,7 +71,7 @@ palloc_init (size_t user_page_limit)
   printf("kernel_pool: %p -> %p\n", free_start, free_start + (kernel_pages-1) * PGSIZE);
   init_pool (&user_pool, free_start + kernel_pages * PGSIZE,
              user_pages, "user pool");
-  printf("user_pool: %p - %p\n", free_start + kernel_pages * PGSIZE, free_end);
+  printf("user_pool: %p -> %p\n", free_start + kernel_pages * PGSIZE, free_end);
 }
 
 // TODO 这个是返回物理地址还是虚拟地址? 虚拟地址

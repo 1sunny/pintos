@@ -223,13 +223,16 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  // main没有pwd
   if(cur->pwd) {
     dir_close (cur->pwd);
   }
-
+  // TODO 这里这样做不太好
+  if (strcmp(cur->name, "main") != 0) {
 #ifdef VM
-  supplemental_page_table_kill (&cur->spt);
+    supplemental_page_table_kill (&cur->spt);
 #endif
+  }
 
   uint32_t *pd;
 

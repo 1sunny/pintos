@@ -25,6 +25,9 @@ static const struct page_operations anon_ops = {
 
 void swap_table_init(void) {
 	swap_disk = block_get_role(BLOCK_SWAP);
+	if (swap_disk == NULL) {
+		PANIC ("No swap_disk found, can't initialize swap table.");
+	}
 
 	list_init(&swap_table.swap_slot_list);
 	block_sector_t swap_size = block_size(swap_disk);
