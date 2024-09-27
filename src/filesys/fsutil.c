@@ -225,7 +225,7 @@ fsutil_append (char **argv)
   memset (buffer, 0, BLOCK_SECTOR_SIZE);
   buffer_cache_write_sector(dst, sector, buffer);
   // block_write (dst, sector, buffer);
-  buffer_cache_write_sector(dst, sector, buffer + 1);
+  buffer_cache_write_sector(dst, sector + 1, buffer);
   // block_write (dst, sector, buffer + 1);
 
   /* Finish up. */

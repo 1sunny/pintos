@@ -7,7 +7,7 @@
 #include <devices/input.h>
 #include <filesys/directory.h>
 #include <filesys/inode.h>
-#include <user/syscall.h>
+// #include <user/syscall.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "process.h"
@@ -55,8 +55,11 @@ syscall_init (void)
 
 static void
 kill_process() {
-  thread_current()->exit_code = -1;
-  thread_exit ();
+  // TODO delete?
+  // thread_current()->exit_code = -1;
+  // TODO process_exit
+  // thread_exit ();
+  process_exit(-1);
 }
 
 /* Reads a byte at user virtual address UADDR.
@@ -160,8 +163,9 @@ get_buf(struct intr_frame *f, int num, size_t n, bool write) {
 static void
 syscall_exit(struct intr_frame *f) {
   int exit_code = get_arg_int(f, 1);
-  thread_current()->exit_code = exit_code;
-  thread_exit();
+  // thread_current()->exit_code = exit_code;
+  // thread_exit();
+  process_exit(exit_code);
 }
 
 static void
@@ -484,7 +488,7 @@ syscall_mkdir (struct intr_frame *f) {
 static void
 syscall_readdir (struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
-  void *buf = get_buf(f, 2, READDIR_MAX_LEN + 1, true);
+  void *buf = get_buf(f, 2, NAME_MAX + 1, true);
   f->eax = 0;
   struct open_file *of = find_open_file(fd);
   if (of) {
@@ -590,7 +594,6 @@ syscall_handler (struct intr_frame *f UNUSED)
       syscall_inumber(f);
       break;
     default:
-      printf ("unimplemented system call!\n");
-      thread_exit ();
+      PANIC("unimplemented system call!\n");
   }
 }

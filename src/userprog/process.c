@@ -19,8 +19,31 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
+static thread_func start_pthread NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+bool setup_thread(void (**eip)(void), void** esp);
+
+/* Initializes user programs in the system by ensuring the main
+   thread has a minimal PCB so that it can execute and wait for
+   the first user process. Any additions to the PCB should be also
+   initialized here if main needs those members */
+void userprog_init(void) {
+  struct thread* t = thread_current();
+  bool success;
+
+  /* Allocate process control block
+     It is imoprtant that this is a call to calloc and not malloc,
+     so that t->pcb->pagedir is guaranteed to be NULL (the kernel's
+     page directory) when t->pcb is assigned, because a timer interrupt
+     can come at any time and activate our pagedir */
+  t->pcb = calloc(sizeof(struct process), 1);
+  success = t->pcb != NULL;
+
+  /* Kill the kernel if we did not succeed */
+  ASSERT(success);
+}
 
 static void
 get_file_name(char *file_name, const char *str) {
@@ -38,7 +61,7 @@ get_file_name(char *file_name, const char *str) {
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
-tid_t
+pid_t
 process_execute (const char *args)
 {
   char *args_copy;
@@ -87,26 +110,55 @@ start_process (void *args)
   char file_name[30];
   get_file_name(file_name, args);
 
-  struct intr_frame if_;
-  bool success;
-
-  /* Initialize interrupt frame and load executable. */
-  memset (&if_, 0, sizeof if_);
-  // 模拟intr_entry中保存到intr_frame的寄存器
-  // TODO 但为什么只设置段寄存器 ?
-  // load 中设置了 eip 和 esp
-  // TODO 为什么可以都用 SEL_UDSEG ?
-  if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
-  if_.cs = SEL_UCSEG;
-  // 中断开启
-  if_.eflags = FLAG_IF | FLAG_MBS;
-
   struct thread *curr = thread_current();
 
-  lock_acquire(&filesys_lock);
-  // load中会active pagedir
-  success = load (file_name, &if_.eip, &if_.esp);
-  lock_release(&filesys_lock);
+  struct intr_frame if_;
+  bool success, pcb_success;
+
+  /* Allocate process control block */
+  struct process* new_pcb = malloc(sizeof(struct process));
+  success = pcb_success = new_pcb != NULL;
+
+  /* Initialize process control block */
+  if (success) {
+    // Ensure that timer_interrupt() -> schedule() -> process_activate()
+    // does not try to activate our uninitialized pagedir
+    new_pcb->pagedir = NULL;
+    curr->pcb = new_pcb;
+
+    // Continue initializing the PCB as normal
+    curr->pcb->main_thread = curr;
+    strlcpy(curr->pcb->process_name, curr->name, sizeof curr->name);
+  }
+
+  /* Initialize interrupt frame and load executable. */
+  if (success) {
+    memset(&if_, 0, sizeof if_);
+    // 模拟intr_entry中保存到intr_frame的寄存器
+    // TODO 但为什么只设置段寄存器 ?
+    // load 中设置了 eip 和 esp
+    // TODO 为什么可以都用 SEL_UDSEG ?
+    if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
+    if_.cs = SEL_UCSEG;
+    // 中断开启
+    if_.eflags = FLAG_IF | FLAG_MBS;
+
+
+    lock_acquire(&filesys_lock);
+    // load中会active pagedir
+    success = load(file_name, &if_.eip, &if_.esp);
+    lock_release(&filesys_lock);
+  }
+
+  /* Handle failure with succesful PCB malloc. Must free the PCB */
+  if (!success && pcb_success) {
+    // Avoid race where PCB is freed before t->pcb is set to NULL
+    // If this happens, then an unfortuantely timed timer interrupt
+    // can try to activate the pagedir, but it is now freed memory
+    struct process* pcb_to_free = curr->pcb;
+    curr->pcb = NULL;
+    free(pcb_to_free);
+  }
 
   /* If load failed, quit. */
   if (!success) {
@@ -143,7 +195,9 @@ start_process (void *args)
     size_t len = strlen(arg) + 1;
     if_.esp -= len;
     memcpy(if_.esp, arg, len);
-    argv[argc++] = if_.esp;
+    if (argc < 65) {
+      argv[argc++] = if_.esp;
+    }
     // printf("argv[%d]: %s\n", argc-1, argv[argc-1]);
   }
 // TODO 虽然现在页表切换了, 但file_name=0xc109000是内核中的地址, 可以不同的内核线程来释放?
@@ -180,17 +234,17 @@ start_process (void *args)
 // 等待TID die然后返回exit status
 // -1: 该TID被kernel终止
 // -1: TID invalid或者不是当前进程的子进程, 或者已经为这个TID调用过process_wait了
-/** Waits for thread TID to die and returns its exit status.  If
+/** Waits for process with PID child_pid to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
-   exception), returns -1.  If TID is invalid or if it was not a
+   exception), returns -1.  If child_pid is invalid or if it was not a
    child of the calling process, or if process_wait() has already
-   been successfully called for the given TID, returns -1
+   been successfully called for the given PID, returns -1
    immediately, without waiting.
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (pid_t child_tid UNUSED)
 {
   struct thread *curr = thread_current();
 
@@ -220,9 +274,21 @@ process_wait (tid_t child_tid UNUSED)
 
 /** Free the current process's resources. */
 void
-process_exit (void)
+process_exit (int status)
 {
   struct thread *cur = thread_current ();
+
+  // TODO 什么时候会出现这种情况,其它线程释放了pcb吗? 应该不会吧,不应该是最后退出的释放吗
+  /* If this thread does not have a PCB, don't worry */
+  if (cur->pcb == NULL) {
+    ASSERT(false);
+    thread_exit();
+    NOT_REACHED();
+  }
+
+  cur->exit_code = status;
+
+  // TODO 下面这些都应该在pcb中,那child_list呢?
   // main没有pwd
   if(cur->pwd) {
     dir_close (cur->pwd);
@@ -238,21 +304,31 @@ process_exit (void)
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-  pd = cur->pagedir;
+  pd = cur->pcb->pagedir;
   if (pd != NULL) 
     {
       /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
+         cur->pcb->pagedir to NULL before switching page directories,
          so that a timer interrupt can't switch back to the
          process page directory.  We must activate the base page
          directory before destroying the process's page
          directory, or our active page directory will be one
          that's been freed (and cleared). */
-      cur->pagedir = NULL;
+      cur->pcb->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  /* Free the PCB of this process and kill this thread
+   Avoid race where PCB is freed before t->pcb is set to NULL
+   If this happens, then an unfortuantely timed timer interrupt
+   can try to activate the pagedir, but it is now freed memory */
+  struct process* pcb_to_free = cur->pcb;
+  cur->pcb = NULL;
+  // TODO 这里如果process里添加了其它数据,应该也需要释放
+  free(pcb_to_free);
+
   printf ("%s: exit(%d)\n", cur->name, cur->exit_code);
+  thread_exit();
 }
 
 /** Sets up the CPU for running user code in the current
@@ -262,12 +338,15 @@ void
 process_activate (void)
 {
   struct thread *t = thread_current ();
-
+  // TODO 什么时候 t->pcb=NULL ?
   /* Activate thread's page tables. */
-  pagedir_activate (t->pagedir);
+  if (t->pcb != NULL && t->pcb->pagedir != NULL)
+    pagedir_activate(t->pcb->pagedir);
+  else
+    pagedir_activate(NULL);
 
-  /* Set thread's kernel stack for use in processing
-     interrupts. */
+  /* Set thread's kernel stack for use in processing interrupts.
+     This does nothing if this is not a user process. */
   tss_update ();
 }
 
@@ -390,8 +469,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   int i;
 
   /* Allocate and activate page directory. */
-  t->pagedir = pagedir_create ();
-  if (t->pagedir == NULL) 
+  t->pcb->pagedir = pagedir_create ();
+  if (t->pcb->pagedir == NULL)
     goto done;
   process_activate ();
 
@@ -578,8 +657,8 @@ install_page (void *upage, void *kpage, bool writable)
 
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
-  if (pagedir_get_page (t->pagedir, upage) == NULL) {
-    if (pagedir_set_page (t->pagedir, upage, kpage, writable)) {
+  if (pagedir_get_page (t->pcb->pagedir, upage) == NULL) {
+    if (pagedir_set_page (t->pcb->pagedir, upage, kpage, writable)) {
       // printf("install page: %p -> %p (%d)\n", upage, kpage, writable);
       return true;
     }
@@ -587,6 +666,71 @@ install_page (void *upage, void *kpage, bool writable)
   }
   return false;
 }
+
+/* Returns true if t is the main thread of the process p */
+bool is_main_thread(struct thread* t, struct process* p) { return p->main_thread == t; }
+
+/* Gets the PID of a process */
+pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
+
+/* Creates a new stack for the thread and sets up its arguments.
+   Stores the thread's entry point into *EIP and its initial stack
+   pointer into *ESP. Handles all cleanup if unsuccessful. Returns
+   true if successful, false otherwise.
+
+   This function will be implemented in Project 2: Multithreading. For
+   now, it does nothing. You may find it necessary to change the
+   function signature. */
+bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; }
+
+/* Starts a new thread with a new user stack running SF, which takes
+   TF and ARG as arguments on its user stack. This new thread may be
+   scheduled (and may even exit) before pthread_execute () returns.
+   Returns the new thread's TID or TID_ERROR if the thread cannot
+   be created properly.
+
+   This function will be implemented in Project 2: Multithreading and
+   should be similar to process_execute (). For now, it does nothing.
+   */
+tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) { return -1; }
+
+/* A thread function that creates a new user thread and starts it
+   running. Responsible for adding itself to the list of threads in
+   the PCB.
+
+   This function will be implemented in Project 2: Multithreading and
+   should be similar to start_process (). For now, it does nothing. */
+static void start_pthread(void* exec_ UNUSED) {}
+
+/* Waits for thread with TID to die, if that thread was spawned
+   in the same process and has not been waited on yet. Returns TID on
+   success and returns TID_ERROR on failure immediately, without
+   waiting.
+
+   This function will be implemented in Project 2: Multithreading. For
+   now, it does nothing. */
+tid_t pthread_join(tid_t tid UNUSED) { return -1; }
+
+/* Free the current thread's resources. Most resources will
+   be freed on thread_exit(), so all we have to do is deallocate the
+   thread's userspace stack. Wake any waiters on this thread.
+
+   The main thread should not use this function. See
+   pthread_exit_main() below.
+
+   This function will be implemented in Project 2: Multithreading. For
+   now, it does nothing. */
+void pthread_exit(void) {}
+
+/* Only to be used when the main thread explicitly calls pthread_exit.
+   The main thread should wait on all threads in the process to
+   terminate properly, before exiting itself. When it exits itself, it
+   must terminate the process in addition to all necessary duties in
+   pthread_exit.
+
+   This function will be implemented in Project 2: Multithreading. For
+   now, it does nothing. */
+void pthread_exit_main(void) {}
 
 #ifndef VM
 /** Loads a segment starting at offset OFS in FILE at address

@@ -349,7 +349,65 @@ lock_held_by_current_thread (const struct lock *lock)
 
   return lock->holder == thread_current ();
 }
-
+
+/* Initializes a readers-writers lock */
+void rw_lock_init(struct rw_lock* rw_lock) {
+  lock_init(&rw_lock->lock);
+  cond_init(&rw_lock->read);
+  cond_init(&rw_lock->write);
+  rw_lock->AR = rw_lock->WR = rw_lock->AW = rw_lock->WW = 0;
+}
+
+/* Acquire a writer-centric readers-writers lock */
+void rw_lock_acquire(struct rw_lock* rw_lock, bool reader) {
+  // Must hold the guard lock the entire time
+  lock_acquire(&rw_lock->lock);
+
+  if (reader) {
+    // Reader code: Block while there are waiting or active writers
+    while ((rw_lock->AW + rw_lock->WW) > 0) {
+      rw_lock->WR++;
+      cond_wait(&rw_lock->read, &rw_lock->lock);
+      rw_lock->WR--;
+    }
+    rw_lock->AR++;
+  } else {
+    // Writer code: Block while there are any active readers/writers in the system
+    while ((rw_lock->AR + rw_lock->AW) > 0) {
+      rw_lock->WW++;
+      cond_wait(&rw_lock->write, &rw_lock->lock);
+      rw_lock->WW--;
+    }
+    rw_lock->AW++;
+  }
+
+  // Release guard lock
+  lock_release(&rw_lock->lock);
+}
+
+/* Release a writer-centric readers-writers lock */
+void rw_lock_release(struct rw_lock* rw_lock, bool reader) {
+  // Must hold the guard lock the entire time
+  lock_acquire(&rw_lock->lock);
+
+  if (reader) {
+    // Reader code: Wake any waiting writers if we are the last reader
+    rw_lock->AR--;
+    if (rw_lock->AR == 0 && rw_lock->WW > 0)
+      cond_signal(&rw_lock->write, &rw_lock->lock);
+  } else {
+    // Writer code: First try to wake a waiting writer, otherwise all waiting readers
+    rw_lock->AW--;
+    if (rw_lock->WW > 0)
+      cond_signal(&rw_lock->write, &rw_lock->lock);
+    else if (rw_lock->WR > 0)
+      cond_broadcast(&rw_lock->read, &rw_lock->lock);
+  }
+
+  // Release guard lock
+  lock_release(&rw_lock->lock);
+}
+
 /** One semaphore in a list. */
 struct semaphore_elem 
   {

@@ -19,6 +19,19 @@ enum
     SYS_TELL,                   /**< Report current position in a file. */
     SYS_CLOSE,                  /**< Close a file. */
 
+    SYS_PRACTICE,     /* Returns arg incremented by 1 */
+    SYS_COMPUTE_E,    /* Computes e */
+    SYS_PT_CREATE,    /* Creates a new thread */
+    SYS_PT_EXIT,      /* Exits the current thread */
+    SYS_PT_JOIN,      /* Waits for thread to finish */
+    SYS_LOCK_INIT,    /* Initializes a lock */
+    SYS_LOCK_ACQUIRE, /* Acquires a lock */
+    SYS_LOCK_RELEASE, /* Releases a lock */
+    SYS_SEMA_INIT,    /* Initializes a semaphore */
+    SYS_SEMA_DOWN,    /* Downs a semaphore */
+    SYS_SEMA_UP,      /* Ups a semaphore */
+    SYS_GET_TID,      /* Gets TID of the current thread */
+
     /* Project 3 and optionally project 4. */
     SYS_MMAP,                   /**< Map a file into memory. */
     SYS_MUNMAP,                 /**< Remove a memory mapping. */

@@ -162,7 +162,7 @@ thread_tick (void)
   if (t == idle_thread)
     idle_ticks++;
 #ifdef USERPROG
-  else if (t->pagedir != NULL)
+  else if (t->pcb != NULL)
     user_ticks++;
 #endif
   else
@@ -362,10 +362,10 @@ void
 thread_exit (void) 
 {
   ASSERT (!intr_context ());
-
-#ifdef USERPROG
-  process_exit ();
-#endif
+// TODO 感觉应该把最后的关中断移动到前面来
+// #ifdef USERPROG
+//   process_exit ();
+// #endif
 
   struct thread *curr = thread_current();
   struct list_elem *e;
@@ -398,6 +398,7 @@ thread_exit (void)
       free(child);
     }
   }
+  // TODO 这里直接访问parent的数据可以吗? 这里应该要同步一下,可能要关个中断,因为下面访问allelem就关了的
   if (curr->parent == NULL) {
     // parent die了, 自己释放动态分配的内存
     free(curr->self_in_parent_child_list);
@@ -656,6 +657,7 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->open_file_list);
 
   t->next_mapid = 0;
+  t->pcb = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

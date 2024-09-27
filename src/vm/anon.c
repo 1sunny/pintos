@@ -2,6 +2,7 @@
 
 #include <threads/malloc.h>
 #include <userprog/pagedir.h>
+#include <userprog/process.h>
 #include <filesys/buffer_cache.h>
 #include "anon.h"
 #include "vm/vm.h"
@@ -103,7 +104,7 @@ anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 	struct thread *curr = page->frame->occupied_thread;
 	ASSERT(is_thread(curr));
-	bool dirty = pagedir_is_dirty(curr->pagedir, page->va);
+	bool dirty = pagedir_is_dirty(curr->pcb->pagedir, page->va);
 	if (true) { // dirty || anon_page->is_stack_page
 		struct swap_slot *slot = swap_get_slot();
 		ASSERT(slot);
@@ -118,7 +119,7 @@ anon_swap_out (struct page *page) {
   // TODO 感觉这个dirty没必要
 	anon_page->dirty |= dirty;
 	// remove pte !
-	pagedir_clear_page(curr->pagedir, page->va);
+	pagedir_clear_page(curr->pcb->pagedir, page->va);
 	return true;
 }
 

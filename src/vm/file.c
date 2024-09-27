@@ -1,6 +1,7 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include <userprog/pagedir.h>
+#include <userprog/process.h>
 #include "vm/vm.h"
 #include "threads/malloc.h"
 
@@ -56,7 +57,7 @@ file_backed_destroy (struct page *page) {
 	struct thread *curr = thread_current();
 	ASSERT(page->frame->occupied_thread == curr);
 	ASSERT(is_thread(curr));
-	bool dirty = pagedir_is_dirty(curr->pagedir, page->va);
+	bool dirty = pagedir_is_dirty(curr->pcb->pagedir, page->va);
 	if (dirty) {
 		// TODO acquire lock
 		// TODO file_page->file什么时候关闭

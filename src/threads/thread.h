@@ -139,7 +139,8 @@ struct thread
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /**< Page directory. */
+    // uint32_t *pagedir;                  /**< Page directory. */
+    struct process* pcb; /* Process control block if this thread is a userprog */
 #endif
 
     // Stack overflow tends to change this value, triggering the assertion.

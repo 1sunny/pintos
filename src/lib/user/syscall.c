@@ -187,3 +187,44 @@ inumber (int fd)
 {
   return syscall1 (SYS_INUMBER, fd);
 }
+
+tid_t sys_pthread_create(stub_fun sfun, pthread_fun tfun, const void* arg) {
+  return syscall3(SYS_PT_CREATE, sfun, tfun, arg);
+}
+
+void sys_pthread_exit() {
+  syscall0(SYS_PT_EXIT);
+  NOT_REACHED();
+}
+
+tid_t sys_pthread_join(tid_t tid) { return syscall1(SYS_PT_JOIN, tid); }
+
+bool lock_init(lock_t* lock) { return syscall1(SYS_LOCK_INIT, lock); }
+
+void lock_acquire(lock_t* lock) {
+  bool success = syscall1(SYS_LOCK_ACQUIRE, lock);
+  if (!success)
+    exit(1);
+}
+
+void lock_release(lock_t* lock) {
+  bool success = syscall1(SYS_LOCK_RELEASE, lock);
+  if (!success)
+    exit(1);
+}
+
+bool sema_init(sema_t* sema, int val) { return syscall2(SYS_SEMA_INIT, sema, val); }
+
+void sema_down(sema_t* sema) {
+  bool success = syscall1(SYS_SEMA_DOWN, sema);
+  if (!success)
+    exit(1);
+}
+
+void sema_up(sema_t* sema) {
+  bool success = syscall1(SYS_SEMA_UP, sema);
+  if (!success)
+    exit(1);
+}
+
+tid_t get_tid(void) { return syscall0(SYS_GET_TID); }

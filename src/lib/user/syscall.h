@@ -3,10 +3,16 @@
 
 #include <stdbool.h>
 #include <debug.h>
+// #include "pthread.h"
+#include <pthread.h>
 
 /** Process identifier. */
 typedef int pid_t;
 #define PID_ERROR ((pid_t) -1)
+
+/* Synchronization Types */
+typedef char lock_t;
+typedef char sema_t;
 
 /** Map region identifier. */
 typedef int mapid_t;
@@ -33,6 +39,17 @@ int write (int fd, const void *buffer, unsigned length);
 void seek (int fd, unsigned position);
 unsigned tell (int fd);
 void close (int fd);
+
+tid_t sys_pthread_create(stub_fun sfun, pthread_fun tfun, const void* arg);
+void sys_pthread_exit(void) NO_RETURN;
+tid_t sys_pthread_join(tid_t tid);
+bool lock_init(lock_t* lock);
+void lock_acquire(lock_t* lock);
+void lock_release(lock_t* lock);
+bool sema_init(sema_t* sema, int val);
+void sema_down(sema_t* sema);
+void sema_up(sema_t* sema);
+tid_t get_tid(void);
 
 /** Project 3 and optionally project 4. */
 mapid_t mmap (int fd, void *addr);

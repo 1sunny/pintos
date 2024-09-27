@@ -9,6 +9,9 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "devices/timer.h"
+#ifdef USERPROG
+#include "userprog/gdt.h"
+#endif
 
 // 可编程中断控制器
 // 8259A PIC的主要作用是：
@@ -393,7 +396,14 @@ make_idtr_operand (uint16_t limit, void *base)
 {
   return limit | ((uint64_t) (uint32_t) base << 16);
 }
-
+
+/* Returns true if this trap to the OS was from userspace */
+#ifdef USERPROG
+static inline bool is_trap_from_userspace(struct intr_frame* frame) {
+  return (frame->cs == SEL_UCSEG) && (frame->ss == SEL_UDSEG);
+}
+#endif
+
 /** Interrupt handlers. */
 
 // intr_handler被intr-stubs.S中的interrupt stubs调用

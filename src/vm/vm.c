@@ -349,7 +349,8 @@ vm_dealloc_page (struct page *page) {
   if (page->frame) {
     ASSERT(page->frame->occupied_thread == curr);
     page->frame->occupied_thread = NULL;
-    pagedir_clear_page(curr->pagedir, page->va);
+    ASSERT(curr->pcb != NULL);
+    pagedir_clear_page(curr->pcb->pagedir, page->va);
   }
   free (page);
 }

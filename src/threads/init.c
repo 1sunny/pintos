@@ -142,6 +142,11 @@ pintos_init (void)
   // calibrates(校准) the timer for accurate short delays
   timer_calibrate ();
 
+#ifdef USERPROG
+  /* Give main thread a minimal PCB so it can launch the first process */
+  userprog_init();
+#endif
+
 #ifdef FILESYS
   /* Initialize file system. */
   // initialize the IDE disks with ide_init(),
