@@ -778,7 +778,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
-      printf("%s read %d to %p\n", thread_current()->name, ofs, upage);
+      // printf("%s read %d to %p\n", thread_current()->name, ofs, upage);
       /* Add the page to the process's address space. */
       if (!install_page (upage, kpage, writable)) 
         {

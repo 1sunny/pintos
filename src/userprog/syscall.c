@@ -149,9 +149,11 @@ get_buf(struct intr_frame *f, int num, size_t n, bool write) {
   uint8_t buf[4];
   read_user_addr(buf, f->esp + num * 4, 4);
   uint8_t *res = *(uint8_t **)buf;
+#ifdef VM
   if (try_pin_pages(res, n, false) == false) {
     kill_process();
   }
+#endif
   if (write) {
     check_write_user_addr(res, n);
   } else {
@@ -285,7 +287,9 @@ syscall_read(struct intr_frame *f) {
       f->eax = -1;
     }
   }
+#ifdef VM
   unpin_pages(buf, size);
+#endif
 }
 
 static void
@@ -314,7 +318,9 @@ syscall_write(struct intr_frame *f) {
       f->eax = -1;
     }
   }
+#ifdef VM
   unpin_pages(buf, size);
+#endif
 }
 
 static void
@@ -383,6 +389,7 @@ lazy_load_file (struct page *page, void *aux) {
   return true;
 }
 
+#ifdef VM
 static void
 syscall_mmap(struct intr_frame *f) {
   int fd = get_arg_int(f, 1);
@@ -448,6 +455,7 @@ syscall_munmap(struct intr_frame *f) {
     }
   }
 }
+#endif
 
 // Changes the current working directory of the process to dir, which may be relative or absolute.
 static void
@@ -532,7 +540,9 @@ syscall_inumber (struct intr_frame *f) {
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+#ifdef VM
   thread_current()->esp = f->esp;
+#endif
   int syscall_num = get_arg_int(f, 0);
   // printf("syscall: %s\n", get_syscall_name(syscall_num));
   switch (syscall_num) {
@@ -572,12 +582,14 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_CLOSE:
       syscall_close(f);
       break;
+#ifdef VM
     case SYS_MMAP:
       syscall_mmap(f);
       break;
     case SYS_MUNMAP:
       syscall_munmap(f);
       break;
+#endif
     case SYS_CHDIR:
       syscall_chdir(f);
       break;

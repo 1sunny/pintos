@@ -656,7 +656,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->next_fd = 2;
   list_init(&t->open_file_list);
 
+#ifdef VM
   t->next_mapid = 0;
+#endif
   t->pcb = NULL;
 
   old_level = intr_disable ();
