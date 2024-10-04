@@ -44,7 +44,7 @@ pagedir_destroy (uint32_t *pd)
         for (pte = pt; pte < pt + PGSIZE / sizeof *pte; pte++)
           if (*pte & PTE_P)
             // 因为用frame table管理页了,所以不需要再释放进程对应的页
-            // palloc_free_page (pte_get_page (*pte));
+            palloc_free_page (pte_get_page (*pte));
         palloc_free_page (pt);
       }
   palloc_free_page (pd);
