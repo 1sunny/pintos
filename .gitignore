@@ -1,6 +1,6 @@
 .idea/
-Note.md
-Note.img/
+Note*.md
+Note*.img/
 cs162-docs/
 cs162.md
 cs162.img/
@@ -8,3 +8,5 @@ notes/
 docs/
 book/
 .vscode/
+commit_msg
+slides/

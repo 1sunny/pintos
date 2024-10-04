@@ -226,18 +226,18 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
-  t->self_in_parent_child_list = malloc(sizeof(struct child_info));
-  if (t->self_in_parent_child_list == NULL) {
-    PANIC("out of memory");
-  }
-  t->self_in_parent_child_list->child_tid = tid;
-  t->self_in_parent_child_list->child_thread = t;
-  t->self_in_parent_child_list->child_exit_code = 0;
-  t->self_in_parent_child_list->waited = false;
-
-  t->parent = thread_current();
-  // 把自己的信息添加到parent的child_list中
-  list_push_back(&t->parent->child_list, &t->self_in_parent_child_list->elem);
+  // t->self_in_parent_child_list = malloc(sizeof(struct child_info));
+  // if (t->self_in_parent_child_list == NULL) {
+  //   PANIC("out of memory");
+  // }
+  // t->self_in_parent_child_list->child_tid = tid;
+  // t->self_in_parent_child_list->child_thread = t;
+  // t->self_in_parent_child_list->child_exit_code = 0;
+  // t->self_in_parent_child_list->waited = false;
+  //
+  // t->parent = thread_current();
+  // // 把自己的信息添加到parent的child_list中
+  // list_push_back(&t->parent->child_list, &t->self_in_parent_child_list->elem);
 
 // When thread_create() creates a new thread,
 // it goes through a fair amount of trouble to get it started properly.
@@ -367,52 +367,52 @@ thread_exit (void)
 //   process_exit ();
 // #endif
 
-  struct thread *curr = thread_current();
-  struct list_elem *e;
-  // 在sema_up parent前就要释放打开的文件
-  for (e = list_begin (&curr->open_file_list); e != list_end (&curr->open_file_list); ) {
-    struct open_file *entry = list_entry(e, struct open_file, elem);
-    e = list_next (e);
-    lock_acquire(&filesys_lock);
-    file_close(entry->file);
-    lock_release(&filesys_lock);
-    free(entry);
-  }
+  // struct thread *curr = thread_current();
+  // struct list_elem *e;
+  // // 在sema_up parent前就要释放打开的文件
+  // for (e = list_begin (&curr->open_file_list); e != list_end (&curr->open_file_list); ) {
+  //   struct open_file *entry = list_entry(e, struct open_file, elem);
+  //   e = list_next (e);
+  //   lock_acquire(&filesys_lock);
+  //   file_close(entry->file);
+  //   lock_release(&filesys_lock);
+  //   free(entry);
+  // }
+  //
+  // lock_acquire(&filesys_lock);
+  // if (curr->executing_file) {
+  //   // file_allow_write();
+  //   file_close(curr->executing_file);
+  // }
+  // lock_release(&filesys_lock);
 
-  lock_acquire(&filesys_lock);
-  if (curr->executing_file) {
-    // file_allow_write();
-    file_close(curr->executing_file);
-  }
-  lock_release(&filesys_lock);
-
-  for (e = list_begin (&curr->child_list); e != list_end (&curr->child_list); ) {
-    struct child_info *child = list_entry(e, struct child_info, elem);
-    // 先移动迭代器
-    e = list_next (e);
-    if (child->child_thread) {
-      // 如果child还没die, 需要告诉child自己die了
-      child->child_thread->parent = NULL;
-    } else {
-      // 如果child die了, 释放其内存
-      free(child);
-    }
-  }
-  // TODO 这里直接访问parent的数据可以吗? 这里应该要同步一下,可能要关个中断,因为下面访问allelem就关了的
-  if (curr->parent == NULL) {
-    // parent die了, 自己释放动态分配的内存
-    free(curr->self_in_parent_child_list);
-  } else {
-    curr->self_in_parent_child_list->child_exit_code = curr->exit_code;
-    if (curr->parent->waiting_tid == curr->tid) {
-      // 如果parent在等待自己, 唤醒parent
-      curr->self_in_parent_child_list->child_thread = NULL;
-      sema_up(&curr->parent->wait_sema);
-    } else {
-      // 置空parent中保存的信息, 表示已die
-      curr->self_in_parent_child_list->child_thread = NULL;
-    }
-  }
+  // for (e = list_begin (&curr->child_list); e != list_end (&curr->child_list); ) {
+  //   struct child_info *child = list_entry(e, struct child_info, elem);
+  //   // 先移动迭代器
+  //   e = list_next (e);
+  //   if (child->child_thread) {
+  //     // 如果child还没die, 需要告诉child自己die了
+  //     child->child_thread->parent = NULL;
+  //   } else {
+  //     // 如果child die了, 释放其内存
+  //     free(child);
+  //   }
+  // }
+  // // TODO 这里直接访问parent的数据可以吗? 这里应该要同步一下,可能要关个中断,因为下面访问allelem就关了的
+  // if (curr->parent == NULL) {
+  //   // parent die了, 自己释放动态分配的内存
+  //   free(curr->self_in_parent_child_list);
+  // } else {
+  //   curr->self_in_parent_child_list->child_exit_code = curr->exit_code;
+  //   if (curr->parent->waiting_tid == curr->tid) {
+  //     // 如果parent在等待自己, 唤醒parent
+  //     curr->self_in_parent_child_list->child_thread = NULL;
+  //     sema_up(&curr->parent->wait_sema);
+  //   } else {
+  //     // 置空parent中保存的信息, 表示已die
+  //     curr->self_in_parent_child_list->child_thread = NULL;
+  //   }
+  // }
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
@@ -647,14 +647,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->waiting_lock = NULL;
 // --- Lab1: Task 2 ---
 // --- Lab2: Task 4 ---
-  list_init(&t->child_list);
-  sema_init(&t->exec_sema, 0);
-  t->exec_result = -1;
-  t->waiting_tid = TID_ERROR;
-  sema_init(&t->wait_sema, 0);
+//   list_init(&t->child_list);
+//   sema_init(&t->exec_sema, 0);
+  // t->exec_result = -1;
+  // t->waiting_tid = TID_ERROR;
+  // sema_init(&t->wait_sema, 0);
 // --- Lab2: Task 4 ---
-  t->next_fd = 2;
-  list_init(&t->open_file_list);
+//   t->next_fd = 2;
+//   list_init(&t->open_file_list);
 
 #ifdef VM
   t->next_mapid = 0;
@@ -773,7 +773,7 @@ thread_schedule_tail (struct thread *prev)
 //   thread_exit()
 //   thread_yield(): 中断时CPU把eflags保存到了intr_frame,然后屏蔽中断?中断结束时恢复(进而允许外中断)
 
-// 调用schedule需要保证关中断 (但是schedule后谁来开呢后续???)
+// 调用schedule需要保证关中断 (但是schedule后谁来开呢后续??? 调用 `schedule()` 的所有路径都会关中断. 新线程被调度后中断会被重新打开)
 // 并且running process's state已经被修改为合适的状态
 // [[[ 这个函数不能调用printf ]]]
 // [[[[[ Before any of these functions call schedule(),

@@ -6,6 +6,7 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "userprog/process.h"
 
 /** A directory. */
 struct dir 
@@ -102,13 +103,16 @@ dir_open_path (const char *path)
     dir = dir_open_root ();
     path++;
   } else {
-    if (thread_current()->pwd == NULL) {
+    if (thread_current()->pcb->pwd == NULL) {
       // main thread没有pwd
       // pintos_init -> run_actions -> fsutil_extract -> filesys_create -> dir_open_path
       dir = dir_open_root ();
     } else {
-      dir = dir_reopen(thread_current()->pwd);
+      dir = dir_reopen(thread_current()->pcb->pwd);
     }
+  }
+  if (dir == NULL) {
+    PANIC("pwd = NULL in dir_open_path");
   }
   while (true) {
     char entry_name[15];

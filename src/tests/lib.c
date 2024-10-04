@@ -6,8 +6,12 @@
 #include <syscall.h>
 #include <pthread.h>
 
+static lock_t console_lock;
 const char *test_name;
 bool quiet = false;
+bool syn_msg = false;
+
+void console_init() { lock_check_init(&console_lock); }
 
 static void
 vmsg (const char *format, va_list args, const char *suffix) 
@@ -32,9 +36,13 @@ msg (const char *format, ...)
 
   if (quiet)
     return;
+  if (syn_msg)
+    lock_acquire(&console_lock);
   va_start (args, format);
   vmsg (format, args, "\n");
   va_end (args);
+  if (syn_msg)
+    lock_release(&console_lock);
 }
 
 void
@@ -62,6 +70,48 @@ swap (void *a_, void *b_, size_t size)
       a[i] = b[i];
       b[i] = t;
     }
+}
+
+// /* Pushes hardcoded values to the FPU */
+// void push_values_to_fpu(int* values, int n) {
+//   for (int i = 0; i < n; i++) {
+//     fpu_push(values[i]);
+//   }
+// }
+//
+// /* Pops hardcoded values from FPU and returns if the values are correct */
+// bool pop_values_from_fpu(int* values, int n) {
+//   for (int i = n - 1; i >= 0; i--) {
+//     if (values[i] != fpu_pop())
+//       return false;
+//   }
+//   return true;
+// }
+
+/* Initializes a lock and checks return value */
+void lock_check_init(lock_t* lock) {
+  if (!lock_init(lock))
+    exit(1);
+}
+
+/* Initializes a semaphore and checks return value */
+void sema_check_init(sema_t* sema, int val) {
+  if (!sema_init(sema, val))
+    exit(1);
+}
+
+/* Joins and checks return value */
+void pthread_check_join(tid_t tid) {
+  if (!pthread_join(tid))
+    exit(1);
+}
+
+/* Creates a thread and checks return value */
+tid_t pthread_check_create(pthread_fun fun, void* arg) {
+  tid_t tid = pthread_create(fun, arg);
+  if (tid == TID_ERROR)
+    exit(1);
+  return tid;
 }
 
 void

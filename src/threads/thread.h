@@ -130,6 +130,7 @@ struct thread
 // When the interrupt occurs in a user program,
 // the struct intr_frame is always at the very top of the page.
 // See section Interrupt Handling, for more information.
+// TODO
     uint8_t *stack;                     /**< Saved stack pointer. */
     int priority;                       /**< Priority. */
     struct list_elem allelem;           /**< List element for all threads list. */
@@ -156,18 +157,18 @@ struct thread
     struct lock *waiting_lock;
     // --- Lab1: Task 2 ---
     // --- Lab2: Task 4 ---
-    int exit_code;
-    struct thread *parent;
-    struct list child_list;
-    struct child_info *self_in_parent_child_list; // parent中保存自己的信息,需要自己维护
-    tid_t waiting_tid; //正在等待的tid
-    struct semaphore wait_sema; // 执行wait时,child exit时通过这个唤醒自己
-    struct semaphore exec_sema; // 执行exec时,child通过这个唤醒自己
-    int exec_result;
+    // int exit_code;
+    // struct thread *parent;
+    // struct list child_list;
+    // struct child_info *self_in_parent_child_list; // parent中保存自己的信息,需要自己维护
+    // tid_t waiting_tid; //正在等待的tid
+    // struct semaphore wait_sema; // 执行wait时,child exit时通过这个唤醒自己
+    // struct semaphore exec_sema; // 执行exec时,child通过这个唤醒自己
+    // int exec_result;
     // --- Lab2: Task 4 ---
-    int next_fd;
-    struct list open_file_list;
-    struct file *executing_file;
+    // int next_fd;
+    // struct list open_file_list;
+    // struct file *executing_file;
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */
     struct supplemental_page_table spt;
@@ -175,7 +176,7 @@ struct thread
     uint32_t stack_bottom;
     mapid_t next_mapid;
 #endif
-    struct dir *pwd;
+    // struct dir *pwd;
 };
 
 /** If false (default), use round-robin scheduler.

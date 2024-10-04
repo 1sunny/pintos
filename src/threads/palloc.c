@@ -127,7 +127,9 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
 void *
 palloc_get_page (enum palloc_flags flags) 
 {
-  return palloc_get_multiple (flags, 1);
+  void *pVoid = palloc_get_multiple(flags, 1);
+  // printf("get  %p\n", pVoid);
+  return pVoid;
 }
 
 /** Frees the PAGE_CNT pages starting at PAGES. */
@@ -144,11 +146,14 @@ palloc_free_multiple (void *pages, size_t page_cnt)
   bool from_user = true;
 
   if (page_from_pool (&kernel_pool, pages)) {
+    // printf("ker pool\n");
     pool = &kernel_pool;
     from_user = false;
   }
-  else if (page_from_pool (&user_pool, pages))
+  else if (page_from_pool (&user_pool, pages)) {
+    // printf("user pool\n");
     pool = &user_pool;
+  }
   else
     NOT_REACHED ();
 
@@ -169,6 +174,7 @@ palloc_free_multiple (void *pages, size_t page_cnt)
 void
 palloc_free_page (void *page) 
 {
+  // printf("free %p\n", page);
   palloc_free_multiple (page, 1);
 }
 

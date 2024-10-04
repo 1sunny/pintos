@@ -116,6 +116,13 @@ check_write_user_addr(uint8_t *dst, size_t n) {
   }
 }
 
+static uint32_t
+get_arg_uint32(struct intr_frame *f, int num) {
+  uint8_t buf[4];
+  read_user_addr(buf, f->esp + num * 4, 4);
+  return *(uint32_t *)buf;
+}
+
 static int
 get_arg_int(struct intr_frame *f, int num) {
   uint8_t buf[4];
@@ -205,8 +212,8 @@ syscall_open(struct intr_frame *f) {
   char *file_name = get_arg_str(f, 1);
 
   struct thread *curr = thread_current();
-  int fd = curr->next_fd;
-  curr->next_fd++;
+  int fd = curr->pcb->next_fd;
+  curr->pcb->next_fd++;
   struct open_file *of = malloc(sizeof(struct open_file));
   if (of == NULL) {
     PANIC("out of memory");
@@ -224,7 +231,7 @@ syscall_open(struct intr_frame *f) {
     } else {
       of->dir = NULL;
     }
-    list_push_back(&curr->open_file_list, &of->elem);
+    list_push_back(&curr->pcb->open_file_list, &of->elem);
     f->eax = fd;
   } else {
     free(of);
@@ -237,7 +244,7 @@ static struct open_file*
 find_open_file(int fd) {
   struct thread *curr = thread_current();
   struct list_elem *e;
-  for (e = list_begin (&curr->open_file_list); e != list_end (&curr->open_file_list); e = list_next (e)) {
+  for (e = list_begin (&curr->pcb->open_file_list); e != list_end (&curr->pcb->open_file_list); e = list_next (e)) {
     struct open_file *entry = list_entry(e, struct open_file, elem);
     if (entry->fd == fd) {
       return entry;
@@ -480,8 +487,8 @@ syscall_chdir (struct intr_frame *f) {
     f->eax = 0;
     return;
   }
-  dir_close(thread_current()->pwd);
-  thread_current()->pwd = dir_open(inode);
+  dir_close(thread_current()->pcb->pwd);
+  thread_current()->pcb->pwd = dir_open(inode);
   // printf("current_dir_sector: %d\n", inode_get_inumber(inode));
   f->eax = 1;
 }
@@ -535,6 +542,143 @@ syscall_inumber (struct intr_frame *f) {
   } else {
     f->eax = -1;
   }
+}
+
+void syscall_pt_create(struct intr_frame *f) {
+  stub_fun sf = (stub_fun) get_arg_uint32(f, 1);
+  pthread_fun tf = (pthread_fun) get_arg_uint32(f, 2);
+  void* arg = (void *) get_arg_uint32(f, 3);
+  f->eax = pthread_execute(sf, tf, arg);
+}
+
+void syscall_pt_exit(struct intr_frame *f) {
+  struct thread* t = thread_current();
+  if (is_main_thread(t, t->pcb)) {
+    pthread_exit_main();
+  } else {
+    pthread_exit();
+  }
+}
+
+void syscall_pt_join(struct intr_frame *f) {
+  tid_t tid = get_arg_int(f, 1);
+  f->eax = pthread_join(tid);
+}
+
+void syscall_lock_init(struct intr_frame *f) {
+  lock_acquire(&thread_current()->pcb->sync_locks);
+  char* lock = (char *) get_arg_uint32(f, 1);
+  struct user_lock* u_lock = (struct user_lock*)malloc(sizeof(struct user_lock));
+  if (lock == NULL || u_lock == NULL) {
+    f->eax = false;
+    free(u_lock);
+    lock_release(&thread_current()->pcb->sync_locks);
+    return;
+  }
+  lock_init(&(u_lock->kernel_lock));
+  unsigned char num_locks = thread_current()->pcb->num_locks;
+  u_lock->lockID = num_locks;
+  *lock = num_locks;
+  thread_current()->pcb->num_locks += 1;
+  list_push_back(&thread_current()->pcb->all_locks, &u_lock->elem);
+  f->eax = true;
+  lock_release(&thread_current()->pcb->sync_locks);
+}
+
+void syscall_lock_acquire(struct intr_frame *f) {
+  char* lock = (char *) get_arg_uint32(f, 1);
+  struct list* all_locks = &thread_current()->pcb->all_locks;
+  for (struct list_elem* e = list_begin(all_locks); e != list_end(all_locks); e = list_next(e)) {
+    struct user_lock* u_lock = list_entry(e, struct user_lock, elem);
+    if (u_lock->lockID == *lock) {
+      if (u_lock->kernel_lock.holder == thread_current()) {
+        f->eax = false;
+      } else {
+        lock_acquire(&(u_lock->kernel_lock));
+        f->eax = true;
+      }
+      return;
+    }
+  }
+  f->eax = false;
+}
+
+void syscall_lock_release(struct intr_frame *f) {
+  char* lock = (char *) get_arg_uint32(f, 1);
+  struct list* all_locks = &thread_current()->pcb->all_locks;
+  for (struct list_elem* e = list_begin(all_locks); e != list_end(all_locks); e = list_next(e)) {
+    struct user_lock* u_lock = list_entry(e, struct user_lock, elem);
+    if (u_lock->lockID == *lock) {
+      if (u_lock->kernel_lock.holder != thread_current()) {
+        f->eax = false;
+      } else {
+        lock_release(&(u_lock->kernel_lock));
+        f->eax = true;
+      }
+      return;
+    }
+  }
+  f->eax = false;
+}
+
+void syscall_sema_init(struct intr_frame *f) {
+  lock_acquire(&thread_current()->pcb->sync_semaphores);
+  char* sema = (char *) get_arg_uint32(f, 1);
+  int val = get_arg_int(f, 2);
+  if (val < 0) {
+    f->eax = false;
+    return;
+  }
+  struct user_semaphore* u_sem = (struct user_semaphore*)malloc(sizeof(struct user_semaphore));
+  if (sema == NULL || u_sem == NULL) {
+    f->eax = false;
+    free(u_sem);
+    lock_release(&thread_current()->pcb->sync_semaphores);
+    return;
+  }
+
+  sema_init(&(u_sem->kernel_semaphore), val);
+  unsigned char num_semaphores = thread_current()->pcb->num_semaphores;
+  u_sem->semaID = num_semaphores;
+  *sema = num_semaphores;
+  thread_current()->pcb->num_semaphores += 1;
+  list_push_back(&thread_current()->pcb->all_semaphores, &u_sem->elem);
+  f->eax = true;
+  lock_release(&thread_current()->pcb->sync_semaphores);
+}
+
+void syscall_sema_down(struct intr_frame *f) {
+  char* sema = (char *) get_arg_uint32(f, 1);
+  struct list* all_semaphores = &thread_current()->pcb->all_semaphores;
+  for (struct list_elem* e = list_begin(all_semaphores); e != list_end(all_semaphores);
+       e = list_next(e)) {
+    struct user_semaphore* u_sem = list_entry(e, struct user_semaphore, elem);
+    if (u_sem->semaID == *sema) {
+      sema_down(&(u_sem->kernel_semaphore));
+      f->eax = true;
+      return;
+    }
+  }
+  f->eax = false;
+}
+
+void syscall_sema_up(struct intr_frame *f) {
+  char* sema = (char *) get_arg_uint32(f, 1);
+  struct list* all_semaphores = &thread_current()->pcb->all_semaphores;
+  for (struct list_elem* e = list_begin(all_semaphores); e != list_end(all_semaphores);
+       e = list_next(e)) {
+    struct user_semaphore* u_sem = list_entry(e, struct user_semaphore, elem);
+    if (u_sem->semaID == *sema) {
+      sema_up(&(u_sem->kernel_semaphore));
+      f->eax = true;
+      return;
+    }
+  }
+  f->eax = false;
+}
+
+void syscall_get_tid(struct intr_frame *f) {
+  f->eax = thread_current()->tid;
 }
 
 static void
@@ -605,6 +749,38 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_INUMBER:
       syscall_inumber(f);
       break;
+#ifdef THREADS
+    case SYS_PT_CREATE:
+      syscall_pt_create(f);
+      break;
+    case SYS_PT_EXIT:
+      syscall_pt_exit(f);
+      break;
+    case SYS_PT_JOIN:
+      syscall_pt_join(f);
+      break;
+    case SYS_LOCK_INIT:
+      syscall_lock_init(f);
+      break;
+    case SYS_LOCK_ACQUIRE:
+      syscall_lock_acquire(f);
+      break;
+    case SYS_LOCK_RELEASE:
+      syscall_lock_release(f);
+      break;
+    case SYS_SEMA_INIT:
+      syscall_sema_init(f);
+      break;
+    case SYS_SEMA_DOWN:
+      syscall_sema_down(f);
+      break;
+    case SYS_SEMA_UP:
+      syscall_sema_up(f);
+      break;
+    case SYS_GET_TID:
+      syscall_get_tid(f);
+      break;
+#endif
     default:
       PANIC("unimplemented system call!\n");
   }

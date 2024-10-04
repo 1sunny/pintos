@@ -19,11 +19,27 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+struct start_process_args {
+    char* args;                /* Executable's file name */
+    struct process* parent_process; /* PCB of the parent process */
+    struct semaphore exec_wait;     /* Down'd by process_execute, up'd by start_process */
+    bool success;                   /* Set by start_process, returned to process_execute */
+};
+
+struct pthread_args {
+    stub_fun sf;
+    pthread_fun tf;
+    void* arg;
+    struct semaphore create_wait;
+    struct process* pcb;
+    bool success;
+};
+
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-bool setup_thread(void (**eip)(void), void** esp);
+bool setup_thread(struct pthread_args*, void (**eip)(void), void** esp);
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -43,6 +59,9 @@ void userprog_init(void) {
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
+
+  /* Initialize PCB */
+  list_init(&t->pcb->child_exit_statuses);
 }
 
 static void
@@ -66,7 +85,10 @@ process_execute (const char *args)
 {
   char *args_copy;
   tid_t tid;
-
+// if (args[13]=='1'&&args[14]==' '){
+//   int a;
+//   a++;
+// }
   // TODO 为什么有race啊?
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -80,16 +102,37 @@ process_execute (const char *args)
   get_file_name(file_name, args_copy);
   // printf("[process_execute] file_name: %s\n", file_name);
 
+  /* Create arguments to start_process */
+  struct start_process_args* process_args = malloc(sizeof(struct start_process_args));
+  if (process_args == NULL) {
+    palloc_free_page(args_copy);
+    return TID_ERROR;
+  }
+  process_args->args = args_copy;
+  process_args->parent_process = thread_current()->pcb;
+  sema_init(&process_args->exec_wait, 0);
+  process_args->success = false;
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, args_copy);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, process_args);
   if (tid == TID_ERROR) {
-    palloc_free_page (args_copy);
+    // start_process中会释放
+    // palloc_free_page (args_copy);
     return -1;
   }
 // TODO 如果新创建的线程在此之前运行完,sema_down就不会被唤醒了
-  struct thread *curr = thread_current();
-  sema_down(&curr->exec_sema);
-  return curr->exec_result;
+//   struct thread *curr = thread_current();
+//   sema_down(&curr->exec_sema);
+
+  sema_down(&process_args->exec_wait);
+
+  /* If start_process failed, should return TID_ERROR */
+  if (!process_args->success) {
+    tid = TID_ERROR;
+  }
+  free(process_args);
+  // return curr->exec_result;
+  return tid;
 }
 
 static void push_uint32(void **esp, uint32_t v) {
@@ -97,12 +140,29 @@ static void push_uint32(void **esp, uint32_t v) {
   *((uint32_t *)(*esp)) = v;
 }
 
+static void
+close_open_files (struct list *open_file_list) {
+  struct list_elem *e;
+  // 在sema_up parent前就要释放打开的文件
+  for (e = list_begin (open_file_list); e != list_end (open_file_list); ) {
+    struct open_file *entry = list_entry(e, struct open_file, elem);
+    e = list_next (e);
+    lock_acquire(&filesys_lock);
+    file_close(entry->file);
+    lock_release(&filesys_lock);
+    free(entry);
+  }
+}
+
 // TODO 这个函数运行时算内核线程吧?
 /** A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *args)
+start_process (void *args_)
 {
+  struct start_process_args* process_args = (struct start_process_args*)args_;
+  char* args = process_args->args;
+
 // TODO 什么时候释放?
 #ifdef VM
   supplemental_page_table_init (&thread_current ()->spt);
@@ -114,21 +174,79 @@ start_process (void *args)
 
   struct intr_frame if_;
   bool success, pcb_success;
+  bool es_success;
 
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
+  struct exit_status* new_es = malloc(sizeof(struct exit_status));
   success = pcb_success = new_pcb != NULL;
+  es_success = new_es != NULL;
+  success = pcb_success && es_success;
 
   /* Initialize process control block */
   if (success) {
     // Ensure that timer_interrupt() -> schedule() -> process_activate()
     // does not try to activate our uninitialized pagedir
     new_pcb->pagedir = NULL;
+    new_pcb->next_fd = 2;
+    list_init(&(new_pcb->open_file_list));
     curr->pcb = new_pcb;
 
     // Continue initializing the PCB as normal
     curr->pcb->main_thread = curr;
     strlcpy(curr->pcb->process_name, curr->name, sizeof curr->name);
+    curr->pcb->exit_status = new_es;
+    list_init(&curr->pcb->child_exit_statuses);
+
+    // Initialize exit status
+    curr->pcb->exit_status->pid = curr->tid;
+    curr->pcb->exit_status->status = -1;
+    curr->pcb->exit_status->waited = false;
+    curr->pcb->exit_status->exited = false;
+    curr->pcb->exit_status->ref_cnt = 2;
+    lock_init(&curr->pcb->exit_status->ref_cnt_lock);
+    sema_init(&curr->pcb->exit_status->exit_wait, 0);
+
+    // Add exit status to parent
+    list_push_back(&process_args->parent_process->child_exit_statuses, &curr->pcb->exit_status->elem);
+
+    // Initialize user_thread related fields in the new PCB
+    list_init(&(curr->pcb->user_threads));
+    lock_init(&(curr->pcb->pthread_lock));
+
+    // Add current main thread to list
+    struct user_thread* ut_main = (struct user_thread*)malloc(sizeof(struct user_thread));
+    success = success && ut_main != NULL;
+    if (success) {
+      ut_main->tid = curr->tid;
+      ut_main->exited = false;
+      ut_main->waited = false;
+      sema_init(&ut_main->join_wait, 0);
+      ut_main->stack = NULL;
+      list_push_back(&curr->pcb->user_threads, &ut_main->elem);
+    } else {
+      free(ut_main);
+    }
+
+    // Initialize user-level synchronization fields in the new PCB
+    list_init(&(curr->pcb->all_locks));
+    list_init(&(curr->pcb->all_semaphores));
+    lock_init(&(curr->pcb->sync_locks));
+    lock_init(&(curr->pcb->sync_semaphores));
+    curr->pcb->num_locks = 0;
+    curr->pcb->num_semaphores = 0;
+  }
+
+  if (success) {
+    // main thread没有pwd, 因为main thread初始化时filesys还没初始化, 不能打开dir
+    //TODO process_args->parent_process == NULL
+    if (process_args->parent_process != NULL && process_args->parent_process->pwd != NULL) {
+      // TODO 这里是不是要加锁
+      curr->pcb->pwd = dir_reopen(process_args->parent_process->pwd);
+    }
+    else {
+      curr->pcb->pwd = dir_open_root();
+    }
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -150,6 +268,19 @@ start_process (void *args)
     lock_release(&filesys_lock);
   }
 
+  /* Handle failure with successful exit status and PCB malloc.
+   Must remove exit status from parent. */
+  if (!success && es_success && pcb_success) {
+    struct list_elem* removed = list_pop_back(&process_args->parent_process->child_exit_statuses);
+    ASSERT(removed == &curr->pcb->exit_status->elem);
+  }
+
+  /* Handle failure with successful exit status malloc.
+   Must free exit status. */
+  if (!success && es_success) {
+    free(curr->pcb->exit_status);
+  }
+
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
     // Avoid race where PCB is freed before t->pcb is set to NULL
@@ -157,31 +288,22 @@ start_process (void *args)
     // can try to activate the pagedir, but it is now freed memory
     struct process* pcb_to_free = curr->pcb;
     curr->pcb = NULL;
+
+    // Destroy the user file list and close all associated files
+    close_open_files(&pcb_to_free->open_file_list);
     free(pcb_to_free);
   }
+
+  /* Set success for parent, and wake parent. */
+  process_args->success = success;
+  sema_up(&process_args->exec_wait);
 
   /* If load failed, quit. */
   if (!success) {
     palloc_free_page (args);
-    curr->self_in_parent_child_list->child_thread = NULL;
-    curr->exit_code = -1;
-    curr->parent->exec_result = -1;
-    sema_up(&curr->parent->exec_sema);
     thread_exit ();
   }
 
-  // ((char*)args)[strlen(args)] = ' ';
-
-  // main thread没有pwd, 因为main thread初始化时filesys还没初始化, 不能打开dir
-  if (curr->parent != NULL && curr->parent->pwd != NULL) {
-    curr->pwd = dir_reopen(curr->parent->pwd);
-  }
-  else {
-    curr->pwd = dir_open_root();
-  }
-
-  curr->parent->exec_result = curr->tid;
-  sema_up(&curr->parent->exec_sema);
   // load中调用setup_stack设置好了esp指向PHY_BASE
   ASSERT(if_.esp == PHYS_BASE);
 
@@ -202,6 +324,14 @@ start_process (void *args)
   }
 // TODO 虽然现在页表切换了, 但file_name=0xc109000是内核中的地址, 可以不同的内核线程来释放?
   palloc_free_page (args);
+  if (argc > 1){
+    curr->pcb->tmp = atoi(argv[1]);
+    if (curr->pcb->tmp == 1) {
+      int a;
+      a++;
+    }
+    // printf("tmp: %d\n", curr->pcb->tmp);
+  }
 
   if_.esp = (void *)ROUND_DOWN((uint32_t)if_.esp, 4);
   // 0
@@ -244,32 +374,31 @@ start_process (void *args)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (pid_t child_tid UNUSED)
+process_wait (pid_t child_pid UNUSED)
 {
-  struct thread *curr = thread_current();
-
-  struct list_elem *e;
-  for (e = list_begin (&curr->child_list); e != list_end (&curr->child_list); e = list_next (e)) {
-    struct child_info *entry = list_entry(e, struct child_info, elem);
-    if (entry->child_tid == child_tid) {
-      if (curr->waiting_tid != TID_ERROR) {
-        return -1;
-      }
-      if (entry->waited) {
-        return -1;
-      }
-      if (entry->child_thread == NULL) {
-        return entry->child_exit_code;
-      } else {
-        curr->waiting_tid = child_tid;
-        sema_down(&curr->wait_sema);
-        curr->waiting_tid = TID_ERROR;
-        entry->waited = true;
-        return entry->child_exit_code;
-      }
+  struct list* child_exit_statuses = &thread_current()->pcb->child_exit_statuses;
+  struct exit_status* child_exit_status = NULL;
+  for (struct list_elem* e = list_begin(child_exit_statuses); e != list_end(child_exit_statuses);
+       e = list_next(e)) {
+    struct exit_status* ec = list_entry(e, struct exit_status, elem);
+    if (ec->pid == child_pid) {
+      child_exit_status = ec;
+      break;
     }
   }
-  return -1;
+
+  if (child_exit_status == NULL || child_exit_status->waited) {
+    return -1;
+  }
+
+  child_exit_status->waited = true;
+
+  if (child_exit_status->exited) {
+    return child_exit_status->status;
+  }
+
+  sema_down(&child_exit_status->exit_wait);
+  return child_exit_status->status;
 }
 
 /** Free the current process's resources. */
@@ -286,12 +415,15 @@ process_exit (int status)
     NOT_REACHED();
   }
 
-  cur->exit_code = status;
+  // cur->exit_code = status;
+
+  lock_acquire(&cur->pcb->pthread_lock);
 
   // TODO 下面这些都应该在pcb中,那child_list呢?
   // main没有pwd
-  if(cur->pwd) {
-    dir_close (cur->pwd);
+  if(cur->pcb->pwd) {
+    dir_close (cur->pcb->pwd);
+    cur->pcb->pwd = NULL;
   }
   // TODO 这里这样做不太好
   if (strcmp(cur->name, "main") != 0) {
@@ -300,35 +432,103 @@ process_exit (int status)
 #endif
   }
 
-  uint32_t *pd;
+  // printf("[%d] exiting\n", cur->pcb->tmp);
+  /* Set and print exit status, if not yet set. */
+  if (!cur->pcb->exit_status->exited) {
+    cur->pcb->exit_status->exited = true;
+    cur->pcb->exit_status->status = status;
+    printf("%s: exit(%d)\n", cur->pcb->process_name, status);
+  }
 
+  lock_release(&cur->pcb->pthread_lock);
+
+  if (is_main_thread(cur, cur->pcb)) {
+    pthread_exit_main();
+  } else {
+    pthread_exit();
+  }
+}
+
+/* Free the current process's resources and signal waiting process. */
+static void
+destroy_process(void) {
+  struct thread* cur = thread_current();
+  uint32_t* pd;
+
+  // TODO 到这里了应该没有其它thread会访问pcb了吧
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pcb->pagedir;
-  if (pd != NULL) 
-    {
-      /* Correct ordering here is crucial.  We must set
+  if (pd != NULL) {
+    /* Correct ordering here is crucial.  We must set
          cur->pcb->pagedir to NULL before switching page directories,
          so that a timer interrupt can't switch back to the
          process page directory.  We must activate the base page
          directory before destroying the process's page
          directory, or our active page directory will be one
          that's been freed (and cleared). */
-      cur->pcb->pagedir = NULL;
-      pagedir_activate (NULL);
-      pagedir_destroy (pd);
+    cur->pcb->pagedir = NULL;
+    pagedir_activate(NULL);
+    pagedir_destroy(pd);
+    // printf("pagedir_destroy\n");
+  }
+
+  while (!list_empty(&cur->pcb->child_exit_statuses)) {
+    struct list_elem* e = list_pop_front(&cur->pcb->child_exit_statuses);
+    struct exit_status* exit_status = list_entry(e, struct exit_status, elem);
+    lock_acquire(&exit_status->ref_cnt_lock);
+    exit_status->ref_cnt -= 1;
+    int ref_cnt = exit_status->ref_cnt;
+    lock_release(&exit_status->ref_cnt_lock);
+    if (ref_cnt == 0) {
+      free(exit_status);
     }
+  }
+
+  lock_acquire(&filesys_lock);
+  // printf("%s lock_acquire\n", cur->name);
+  if (cur->pcb->executing_file) {
+    file_close(cur->pcb->executing_file);
+  }
+  // printf("%s lock release\n", cur->name);
+  lock_release(&filesys_lock);
+
+  lock_acquire(&cur->pcb->exit_status->ref_cnt_lock);
+  int ref_cnt = cur->pcb->exit_status->ref_cnt -= 1;
+  lock_release(&cur->pcb->exit_status->ref_cnt_lock);
+  if (ref_cnt == 0) {
+    free(cur->pcb->exit_status);
+  } else {
+    sema_up(&cur->pcb->exit_status->exit_wait);
+  }
+
+  while (!list_empty(&cur->pcb->user_threads)) {
+    struct list_elem* e = list_pop_front(&cur->pcb->user_threads);
+    struct user_thread* ut = list_entry(e, struct user_thread, elem);
+    free(ut);
+  }
+
+  while (!list_empty(&cur->pcb->all_locks)) {
+    struct list_elem* e = list_pop_front(&cur->pcb->all_locks);
+    struct user_lock* u_lock = list_entry(e, struct user_lock, elem);
+    free(u_lock);
+  }
+  while (!list_empty(&cur->pcb->all_semaphores)) {
+    struct list_elem* e = list_pop_front(&cur->pcb->all_semaphores);
+    struct user_lock* u_sem = list_entry(e, struct user_semaphore, elem);
+    free(u_sem);
+  }
+
+  close_open_files(&cur->pcb->open_file_list);
+
   /* Free the PCB of this process and kill this thread
-   Avoid race where PCB is freed before t->pcb is set to NULL
-   If this happens, then an unfortuantely timed timer interrupt
-   can try to activate the pagedir, but it is now freed memory */
+     Avoid race where PCB is freed before t->pcb is set to NULL
+     If this happens, then an unfortuantely timed timer interrupt
+     can try to activate the pagedir, but it is now freed memory */
   struct process* pcb_to_free = cur->pcb;
   cur->pcb = NULL;
-  // TODO 这里如果process里添加了其它数据,应该也需要释放
-  free(pcb_to_free);
 
-  printf ("%s: exit(%d)\n", cur->name, cur->exit_code);
-  thread_exit();
+  free(pcb_to_free);
 }
 
 /** Sets up the CPU for running user code in the current
@@ -474,6 +674,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  // TODO 这里是不是没获取锁啊
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
@@ -483,7 +684,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   file_deny_write(file);
-  thread_current()->executing_file = file;
+  t->pcb->executing_file = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -599,7 +800,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 /** Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
 static bool
-validate_segment (const struct Elf32_Phdr *phdr, struct file *file) 
+validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 {
   /* p_offset and p_vaddr must have the same page offset. */
   if ((phdr->p_offset & PGMASK) != (phdr->p_vaddr & PGMASK)) 
@@ -681,7 +882,25 @@ pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. You may find it necessary to change the
    function signature. */
-bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; }
+bool setup_thread(struct pthread_args* args, void (**eip)(void) UNUSED, void** esp UNUSED) {
+  process_activate();
+  if (!setup_stack(esp)) {
+    return false;
+  }
+  // Push args->arg and args->tf onto stack with null return address
+  *((char**)esp) -= 4;
+  **((void***)esp) = args->arg;
+
+  *((char**)esp) -= 4;
+  **((pthread_fun***)esp) = args->tf;
+
+  *((char**)esp) -= 4;
+  **((void***)esp) = NULL;
+
+  *eip = args->sf;
+
+  return true;
+}
 
 /* Starts a new thread with a new user stack running SF, which takes
    TF and ARG as arguments on its user stack. This new thread may be
@@ -692,7 +911,24 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; 
    This function will be implemented in Project 2: Multithreading and
    should be similar to process_execute (). For now, it does nothing.
    */
-tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) { return -1; }
+tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) {
+  lock_acquire(&thread_current()->pcb->pthread_lock);
+  struct pthread_args* arguments = (struct pthread_args*)malloc(sizeof(struct pthread_args));
+  tid_t tid;
+  arguments->sf = sf;
+  arguments->tf = tf;
+  arguments->arg = arg;
+  arguments->pcb = thread_current()->pcb;
+  sema_init(&(arguments->create_wait), 0);
+  tid = thread_create("stub", PRI_DEFAULT, start_pthread, arguments);
+  sema_down(&(arguments->create_wait));
+  if (!arguments->success) {
+    tid = TID_ERROR;
+  }
+  free(arguments);
+  lock_release(&thread_current()->pcb->pthread_lock);
+  return tid;
+}
 
 /* A thread function that creates a new user thread and starts it
    running. Responsible for adding itself to the list of threads in
@@ -700,7 +936,50 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
 
    This function will be implemented in Project 2: Multithreading and
    should be similar to start_process (). For now, it does nothing. */
-static void start_pthread(void* exec_ UNUSED) {}
+static void start_pthread(void* exec_ UNUSED) {
+  struct intr_frame if_;
+  struct pthread_args* args = (struct pthread_args*)exec_;
+  struct thread* t = thread_current();
+  t->pcb = args->pcb;
+
+  struct user_thread* u_thread = (struct user_thread*)malloc(sizeof(struct user_thread));
+  if (u_thread == NULL) {
+    args->success = false;
+    return;
+  }
+  u_thread->tid = t->tid;
+  u_thread->exited = false;
+  u_thread->waited = false;
+  sema_init(&(u_thread->join_wait), 0);
+  // TODO 这个不需要加锁吗? pthread_execute中加了锁
+  list_push_back(&t->pcb->user_threads, &u_thread->elem);
+
+  /* Set interrupt frame flags, copied from start_process() */
+  memset(&if_, 0, sizeof if_);
+  if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
+  if_.cs = SEL_UCSEG;
+  if_.eflags = FLAG_IF | FLAG_MBS;
+  bool success = setup_thread(args, &if_.eip, &if_.esp);
+
+  if (!success) {
+    // Free u_thread and remove from list
+    struct list_elem* removed = list_pop_back(&t->pcb->user_threads);
+    ASSERT(removed == &u_thread->elem);
+    free(u_thread);
+  } else {
+    u_thread->stack = pg_round_down(if_.esp);
+  }
+  args->success = success;
+  sema_up(&args->create_wait);
+
+  if (!success) {
+    pthread_exit();
+  }
+
+  /* Simulate a return from an interrupt to start user_thread running */
+  asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
+  NOT_REACHED();
+}
 
 /* Waits for thread with TID to die, if that thread was spawned
    in the same process and has not been waited on yet. Returns TID on
@@ -709,7 +988,48 @@ static void start_pthread(void* exec_ UNUSED) {}
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-tid_t pthread_join(tid_t tid UNUSED) { return -1; }
+tid_t pthread_join(tid_t tid UNUSED) {
+  struct thread *t = thread_current();
+  lock_acquire(&t->pcb->pthread_lock);
+  // Check for self-join
+  if (tid == t->tid) {
+    lock_release(&t->pcb->pthread_lock);
+    return TID_ERROR;
+  }
+
+  struct list* user_threads = &t->pcb->user_threads;
+  struct user_thread* ut;
+  for (struct list_elem* e = list_begin(user_threads); e != list_end(user_threads);
+       e = list_next(e)) {
+    ut = list_entry(e, struct user_thread, elem);
+    if (ut->tid == tid) {
+      if (ut->exited && !ut->waited) {
+        lock_release(&t->pcb->pthread_lock);
+        return ut->tid;
+      } else if (!ut->waited) {
+        ut->waited = true;
+        lock_release(&t->pcb->pthread_lock);
+        // printf("[%d:%s] join wait %d\n", t->tid, t->name, tid);
+        sema_down(&ut->join_wait);
+        // printf("[%d:%s] wake\n", t->tid, t->name);
+        lock_acquire(&t->pcb->pthread_lock);
+        // TODO 这里为什么要remove?
+        // 到这里证明 ut一定调用了pthread_exit,pthread_exit中sema_up(&ut->join_wait);
+        // 应该删除不删除都可以
+        // printf("[%d:%s] remove\n", t->tid, t->name);
+        list_remove(&ut->elem);
+        free(ut);
+        lock_release(&t->pcb->pthread_lock);
+        // printf("[%d:%s] release\n", t->tid, t->name);
+        return tid;
+      }
+      break;
+    }
+  }
+
+  lock_release(&t->pcb->pthread_lock);
+  return TID_ERROR;
+}
 
 /* Free the current thread's resources. Most resources will
    be freed on thread_exit(), so all we have to do is deallocate the
@@ -720,7 +1040,30 @@ tid_t pthread_join(tid_t tid UNUSED) { return -1; }
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-void pthread_exit(void) {}
+void pthread_exit(void) {
+  struct thread* t = thread_current();
+  lock_acquire(&t->pcb->pthread_lock);
+
+  struct list* user_threads = &t->pcb->user_threads;
+  for (struct list_elem* e = list_begin(user_threads); e != list_end(user_threads);
+       e = list_next(e)) {
+    struct user_thread* ut = list_entry(e, struct user_thread, elem);
+    if (ut->tid == t->tid) {
+      ut->exited = true;
+      // Free user thread stack and free struct user_thread if waited if true?
+      uint8_t* kpage = pagedir_get_page(t->pcb->pagedir, ut->stack);
+      if (kpage != NULL) {
+        palloc_free_page(kpage);
+      }
+      pagedir_clear_page(t->pcb->pagedir, ut->stack);
+
+      // printf("[%d:%s] pthread_exit\n", t->tid, t->name);
+      sema_up(&ut->join_wait);
+      lock_release(&t->pcb->pthread_lock);
+      thread_exit();
+    }
+  }
+}
 
 /* Only to be used when the main thread explicitly calls pthread_exit.
    The main thread should wait on all threads in the process to
@@ -730,7 +1073,44 @@ void pthread_exit(void) {}
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-void pthread_exit_main(void) {}
+void pthread_exit_main(void) {
+  struct thread* t = thread_current();
+  lock_acquire(&t->pcb->pthread_lock);
+
+  struct list* user_threads = &t->pcb->user_threads;
+  // Main thread should be at front of list
+  struct list_elem* e = list_front(user_threads);
+  struct user_thread* ut_main = list_entry(e, struct user_thread, elem);
+  ut_main->exited = true;
+  // printf("main sema_up\n");
+  sema_up(&ut_main->join_wait);
+  // 只需要唤醒了一次等待main的线程,因为只能等待一次
+
+  for (struct list_elem* e = list_begin(user_threads); e != list_end(user_threads);
+       e = list_next(e)) {
+    struct user_thread* ut = list_entry(e, struct user_thread, elem);
+    // TODO 为什么要!ut->waited, 因为有人可能在wait它, 不要重复wait
+    if (!ut->exited && !ut->waited) {
+      lock_release(&t->pcb->pthread_lock);
+      // printf("[%d:%s] join wait in exit_main: %d\n", t->tid, t->name, ut->tid);
+      sema_down(&ut->join_wait);
+      // printf("[%d:%s] wake\n", t->tid, t->name);
+      lock_acquire(&t->pcb->pthread_lock);
+    }
+  }
+
+  /* Set and print exit status to 0, if not yet set. */
+  if (!t->pcb->exit_status->exited) {
+    t->pcb->exit_status->exited = true;
+    t->pcb->exit_status->status = 0;
+    printf("%s: exit(%d)\n", t->pcb->process_name, 0);
+  }
+
+  lock_release(&t->pcb->pthread_lock);
+
+  destroy_process();
+  thread_exit();
+}
 
 #ifndef VM
 /** Loads a segment starting at offset OFS in FILE at address
@@ -767,8 +1147,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
       /* Get a page of memory. */
       uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
+      // printf("got %p\n", kpage);
+      if (kpage == NULL) {
+        // printf("nooooooooooooo\n");
         return false;
+      }
 
       /* Load this page. */
       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
@@ -800,20 +1183,28 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp) 
 {
-  uint8_t *kpage;
+  struct thread* t = thread_current();
+  uint8_t* kpage;
   bool success = false;
 
-  // TODO 为啥叫 kpage ? 不是从 user pool 获取的吗
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      // TODO 为啥不设置 ebp 呢 ?
-      else
-        palloc_free_page (kpage);
+  // // TODO 为啥叫 kpage ? 不是从 user pool 获取的吗
+  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  if (kpage != NULL) {
+    // Map to first available virtual user page
+    uint8_t* page_boundary = (uint8_t*)PHYS_BASE - PGSIZE;
+    while (page_boundary >= 0) {
+      if (pagedir_get_page(t->pcb->pagedir, page_boundary) == NULL) {
+        success = install_page(page_boundary, kpage, true);
+        break;
+      }
+      page_boundary -= PGSIZE;
     }
+    if (success)
+      *esp = page_boundary + PGSIZE; // TODO 这里为什么要-20
+      // TODO 为啥不设置 ebp 呢 ?
+    else
+      palloc_free_page(kpage);
+  }
   return success;
 }
 

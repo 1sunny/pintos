@@ -8,7 +8,9 @@
 
 extern const char *test_name;
 extern bool quiet;
+extern bool syn_msg;
 
+void console_init(void);
 void msg (const char *, ...) PRINTF_FORMAT (1, 2);
 void fail (const char *, ...) PRINTF_FORMAT (1, 2) NO_RETURN;
 
@@ -34,6 +36,11 @@ void fail (const char *, ...) PRINTF_FORMAT (1, 2) NO_RETURN;
               fail (__VA_ARGS__);               \
           }                                     \
         while (0)
+
+void lock_check_init(lock_t* lock);
+void sema_check_init(sema_t* sema, int val);
+void pthread_check_join(tid_t tid);
+tid_t pthread_check_create(pthread_fun fun, void* arg);
 
 void shuffle (void *, size_t cnt, size_t size);
 
