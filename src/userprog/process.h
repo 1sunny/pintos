@@ -82,7 +82,8 @@ struct process {
     struct list open_file_list;
     struct dir *pwd;
     // int num_opened_files;            /* Number of files previously opened */
-
+    uint32_t heap_start;
+    uint32_t heap_end;
     /* User Threads fields*/
     struct lock pthread_lock;
     struct list user_threads;

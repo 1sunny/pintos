@@ -34,6 +34,7 @@
 #ifdef FILESYS
 #include "devices/block.h"
 #include "devices/ide.h"
+#include "devices/pci.h"
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
 #endif
@@ -82,10 +83,20 @@ pintos_init (void)
   char **argv;
 
   // clears out the kernel's "BSS", which is the traditional name for a segment that should be initialized to all zeros. In most C implementations, whenever you declare a variable outside a function without providing an initializer, that variable goes into the BSS. Because it's all zeros, the BSS isn't stored in the image that the loader brought into memory. We just use memset() to zero it out.
-  /* Clear BSS. */  
+  /* Clear BSS. */
+  /* tom: the loader does not zero uninitialized data, so we need to;
+   * otherwise, your code might do unexpected things.
+   * It is not that the loader is lazy -- it is constrained to fit
+   * into a small space.
+   */
   bss_init ();
 
   /* Break command line into arguments and parse options. */
+  /* tom: The loader passes us arguments in a pre-defined location
+   * in memory.  These arguments parameterize the OS -- for example,
+   * how big we should assume memory to be, so we need to parse the
+   * arguments early.  But they also specify what tests to run, which we
+   * don't use until later -- after the OS has been initialized. */
   argv = read_command_line ();
   argv = parse_options (argv);
 
@@ -95,6 +106,15 @@ pintos_init (void)
   // and lock acquisition in turn is important to other Pintos subsystems.
   /* Initialize ourselves as a thread so we can use locks,
      then enable console locking. */
+  /* tom: the order of initalization code matters.  malloc
+   * uses a lock to protect its shared data structures.  Although we're
+   * running single-threaded for now, so locks will always be free,
+   * the lock code checks the current thread (to verify the lock is
+   * being released by the lock holder).  So we need to have set up the
+   * current thread before we can allow calls to the lock system (in
+   * thread_init).  We need to set up malloc before we can allow calls
+   * that allocate memory.  We need to set up the console (which uses
+   * locks) before we can do printf.  And so forth. */
   thread_init ();
   // initialize the console and print a startup message to the console
   console_init ();  
@@ -105,6 +125,9 @@ pintos_init (void)
 
   /* Initialize memory system. */
   // sets up the kernel page allocator, which doles out memory one or more pages at a time (see section Page Allocator)
+  /* tom: two memory allocators -- one for pages (palloc) and one for
+  * variable size things (malloc).  malloc uses palloc, so we need
+  * to init palloc first */
   palloc_init (user_page_limit);
   // sets up the allocator that handles allocations of arbitrary-size blocks of memory (see section Block Allocator)
   malloc_init ();
@@ -139,6 +162,9 @@ pintos_init (void)
   // With interrupts enabled, interrupt-driven serial port I/O becomes possible,
   // so we use serial_init_queue() to switch to that mode
   serial_init_queue ();
+  /* tom: calibrating the timer involves counting the number
+  * of loop iterations between timer interrupts, to measure
+  * the relative speed of the processor.  So interrupts need to be on */
   // calibrates(校准) the timer for accurate short delays
   timer_calibrate ();
 
@@ -148,6 +174,9 @@ pintos_init (void)
 #endif
 
 #ifdef FILESYS
+  /* Initialize network. */
+  pci_init();
+
   /* Initialize file system. */
   // initialize the IDE disks with ide_init(),
   // then the file system with filesys_init()
@@ -382,6 +411,12 @@ run_task (char **argv)
 
 /** Executes all of the actions specified in ARGV[]
    up to the null pointer sentinel. */
+/*
+ * tom: this is a complex bit of code, but you can ignore it.
+ * in practice, it just calls "void run_task()"; the other part here
+ * is for testing the file system.  And for assignment 1, run_task just
+ * calls "void run_test()" -- the specific test routine.
+ * */
 static void
 run_actions (char **argv) 
 {

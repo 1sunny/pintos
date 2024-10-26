@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// inb是x86汇编中的指令,意思是从一个端口读取一个字节("in byte")
+// %w1和%b0是占位符,分别指代寄存器中的值:
+// "%w1"代表16位的端口地址(这里对应port参数)
+// "%b0"代表8位的目标寄存器(这里对应data变量,用来存储读取的数据)
 /** Reads and returns a byte from PORT. */
 static inline uint8_t
 inb (uint16_t port)

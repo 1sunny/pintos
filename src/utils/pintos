@@ -18,6 +18,7 @@ our ($gdbport) = 1234;    # GDB connection port. Default 1234.
 our ($uidport) = $< % 5000 + 25000; # GDB port based on user id
 our ($mem) = 4;			# Physical RAM in MB.
 our ($serial) = 1;		# Use serial port for input and output?
+our ($net) = 0;         # Activate network device?
 our ($vga);			# VGA output: window, terminal, or none.
 our ($jitter);			# Seed for random timer interrupts, if set.
 our ($realtime);		# Synchronize timer interrupts with real time?
@@ -73,6 +74,7 @@ sub parse_command_line {
     "m|memory=i" => \$mem,
     "j|jitter=i" => sub { set_jitter ($_[1]) },
     "r|realtime" => sub { set_realtime () },
+    "n|network" => \$net,
 
     "T|timeout=i" => \$timeout,
     "k|kill-on-failure" => \$kill_on_failure,
@@ -157,6 +159,7 @@ Testing options:
                            panic, test failure, or triple fault
 Configuration options:
   -m, --mem=N              Give Pintos N MB physical RAM (default: 4)
+  -n, --network            Enable network device driver (default: off)
 File system commands:
   -p, --put-file=HOSTFN    Copy HOSTFN into VM, by default under same name
   -g, --get-file=GUESTFN   Copy GUESTFN out of VM, by default under same name
@@ -573,6 +576,11 @@ log: bochsout.txt
 panic: action=fatal
 user_shortcut: keys=ctrlaltdel
 EOF
+  if ($net ne 0) {
+      print BOCHSRC "plugin_ctrl: e1000=1\n";
+      print BOCHSRC "pci: enabled=1, chipset=i440fx, slot2=e1000\n";
+      print BOCHSRC "e1000: enabled=1, mac=fe:fd:00:00:00:01, ethmod=tuntap, ethdev=/dev/net/tun\n";
+  }
   print BOCHSRC "gdbstub: enabled=1, port=$gdbport\n" if $debug eq 'gdb';
   print BOCHSRC "clock: sync=", $realtime ? 'realtime' : 'none',
   ", time0=0\n";

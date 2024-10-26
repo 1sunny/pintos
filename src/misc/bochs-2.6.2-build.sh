@@ -21,7 +21,8 @@ DSTDIR=$(cd $1 && pwd)
 cd /tmp
 mkdir $$
 cd $$
-wget https://sourceforge.net/projects/bochs/files/bochs/2.6.2/bochs-2.6.2.tar.gz/download -O bochs-2.6.2.tar.gz 
+cp $CWD/bochs-2.6.2.tar.gz .
+#wget https://sourceforge.net/projects/bochs/files/bochs/2.6.2/bochs-2.6.2.tar.gz/download -O bochs-2.6.2.tar.gz
 tar xzf bochs-2.6.2.tar.gz
 cd bochs-2.6.2
 cat $CWD/bochs-2.6.2-jitter-plus-segv.patch | patch -p1
@@ -42,7 +43,7 @@ if [ $os == "Darwin" ]; then
 fi
 WD=$(pwd)
 mkdir plain && cd plain
-../configure $CFGOPTS --enable-gdb-stub && make -j8
+../configure $CFGOPTS --enable-gdb-stub --enable-e1000 --enable-pci  && make -j8
 if [ $? -ne 0 ]; then
   echo "Error: build bochs failed"
   exit 1

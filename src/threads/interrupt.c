@@ -186,6 +186,7 @@ register_handler (uint8_t vec_no, int dpl, enum intr_level level,
 {
   ASSERT (intr_handlers[vec_no] == NULL);
   if (level == INTR_ON)
+    // 内中断(trap)处理时中断是打开的
     idt[vec_no] = make_trap_gate (intr_stubs[vec_no], dpl);
   else
     idt[vec_no] = make_intr_gate (intr_stubs[vec_no], dpl);
@@ -265,6 +266,11 @@ intr_context (void)
 // to be called just before the interrupt returns.
 // Used in the timer interrupt handler when a thread's time slice expires,
 // to cause a new thread to be scheduled.
+/* tom: NOTE -- using static data structures like this will not work
+ * on a multiprocessor (because multiple processors could set yield-on-return
+ * at the same time)!  it would be better to set
+ * yield-on-return in the thread control block.
+ */
 /** During processing of an external interrupt, directs the
    interrupt handler to yield to a new process just before
    returning from the interrupt.  May not be called at any other
@@ -277,6 +283,12 @@ intr_yield_on_return (void)
 }
 
 
+// 8259A PIC用于管理计算机中的硬件中断请求(IRQ),它可以协调来自不同设备的中断信号,并将中断传递给CPU进行处理
+// PIC 管理硬件中断,将来自设备的中断信号路由到CPU,使CPU能够响应和处理中断
+// 主PIC(Master PIC)和从PIC(Slave PIC)配合工作,主PIC管理IRQ0-7(共8个中断),
+// 从PIC管理IRQ8-15(共8个中断),合计16个中断线
+// 默认情况下,这些中断线映射到中断向量0-15,但这些向量通常被CPU的异常处理(如除零错误等)使用,
+// 因此需要重新映射到32-47(0x20-0x2F),以避免冲突
 // PICs传来的中断号0-15号会默认走到interrupt vectors 0...15,
 // 这和CPU的traps and exceptions重叠了,所以把0-15映射到32-47
 /** 8259A Programmable Interrupt Controller. */
@@ -460,6 +472,13 @@ intr_handler (struct intr_frame *frame)
       // Acknowledge interrupt
       pic_end_of_interrupt (frame->vec_no);
 
+      /* tom: we're at the end of the interrupt handler; if the interrupted
+       * thread is to be preempted, we switch now, resuming execution of
+       * the next thread to run instead of exiting the interrupt handler.
+       * Other OS'es do this a bit differently --
+       * they save the state of the current thread, and exit the interrupt
+       * handler directly to the new thread.
+       */
       // 前面不是设置了 yield_on_return = false; 吗
       // handler(如果是thread_tick)中会设置调用intr_yield_on_return设置yield_on_return
       if (yield_on_return)

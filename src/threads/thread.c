@@ -76,6 +76,15 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/* tom: the thread system is initialized in two steps.
+ * The first is thread_init -- it sets up the ready list,
+ * puts the current thread ("main") on it so that we can then
+ * use locks.  We're still single threaded at that point.
+ *
+ * Then after other things are working, we turn on multithreading
+ * using thread_start().  This creates an idle thread that gets
+ * run if there's nothing else to do.
+ */
 // Called by pintos_init() to initialize the thread system.
 // Its main purpose is to [[[ create a struct thread for Pintos's initial thread ]]].
 // This is possible because the [[[ Pintos loader puts the initial thread's stack at the top of a page ]]],
@@ -120,6 +129,12 @@ thread_init (void)
   initial_thread->tid = allocate_tid ();
 }
 
+/* tom: This routine needs to create the idle thread so that
+ * if all the threads are blocked, there is still a thread to switch
+ * to (otherwise you need to special case the code in thread_block()).
+ * HOWEVER, I have no idea why they insist on waiting for the idle thread
+ * to start -- it should be sufficient just to put it on the ready list.
+ */
 // pintos_init中唯一调用
 // 用于开起抢占式调度,开启之前只有main一个线程,Called by pintos_init()
 // 创建idle thread(min priority), 这个线程在其它现在阻塞时被scheduled
@@ -168,6 +183,10 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  /* tom: more precisely, set a flag so that when we finish
+   * handling this interrupt, we'll yield the processor to the
+   * next thread on the queue, rather than resuming this one.
+   */
   // 执行抢占
   // TIME_SLICE: # of timer ticks to give each thread
   /* Enforce preemption. */
@@ -188,6 +207,9 @@ thread_print_stats (void)
           idle_ticks, kernel_ticks, user_ticks);
 }
 
+/* tom: no idea why they return a tid_t rather than a pointer to
+ * the thread control block.
+ */
 /** Creates a new kernel thread named NAME with the given initial
    PRIORITY, which executes FUNCTION passing AUX as the argument,
    and [[[ adds it to the ready queue. ]]]  [[[ Returns the thread identifier ]]]
@@ -281,6 +303,9 @@ thread_create (const char *name, int priority,
   return tid;
 }
 
+/* tom: I'll put this more strongly -- DON'T call this directly (except
+ * from synch.c)!
+ */
 // [[[ 这个函数不能调用printf ]]]
 /** Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
@@ -318,6 +343,11 @@ thread_unblock (struct thread *t)
   // 在关中断的情况下进行, 防止当前函数被打断?
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
+  /* tom: you might think "list_push_back" pushes the thread
+   * back onto the ready queue, but you would be wrong.  It puts the thread
+   * at the end of of the list.  (There's a list_push_front.)  Calling them
+   * "list_prepend" and "list_append" would have been much clearer.
+   */
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
@@ -356,6 +386,12 @@ thread_tid (void)
   return thread_current ()->tid;
 }
 
+/*
+ * tom: implementation note: we can't deallocate the thread stack
+ * on which we are running, until we are not running on it anymore.
+ * so we need to queue some work for the next thread that runs --
+ * it checks whether the previous thread needs to be cleaned up.
+ */
 /** Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void
@@ -534,8 +570,11 @@ thread_get_recent_cpu (void)
   /* Not yet implemented. */
   return 0;
 }
-
 
+/* tom: A better implementation of this would be to simply run this
+ * at a lower priority than all other threads, so that it never
+ * runs if anything else is available.
+ */
 // idle thread最初是被thread_start放在ready list中,
 // 然后会被scheduled一次,at which point it initializes idle_thread(全局静态变量)
 // 之后,idle thread就不会出现在ready list中
@@ -580,6 +619,13 @@ idle (void *idle_started_ UNUSED)
     }
 }
 
+/* tom: This is really important, and a bit of tricky bit of code.
+ * You might think that we should just arrange to switch directly into
+ * "function" when we start the thread.  The reason not to do this
+ * is to handle the case where "function" returns.  If it does, we
+ * want to cleanly exit the thread, rather than just falling off the end
+ * of the stack into who knows what.
+ */
 // 开中断, 运行thread_create传递的函数, 函数返回后调用thread_exit
 /** Function used as the basis for a kernel thread. */
 static void
@@ -619,6 +665,12 @@ is_thread (struct thread *t)
   return t != NULL && t->magic == THREAD_MAGIC;
 }
 
+/* tom: a bit of advice.  It is helpful to have function names
+ * that make a bit of sense. If you see "init_thread" or "thread_init"
+ * can you tell which initializes a single thread, and which initializes
+ * the thread system as a whole?  I can't.  Anyway, this is the former.
+ * Its a private helper function, only used by thread_create.
+ */
 /** Does basic initialization of T as a blocked thread named
    NAME. */
 static void
