@@ -216,6 +216,13 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   // 这里中断应该由CPU关了的吧?
   ticks++;
+  if (thread_mlfqs) {
+    thread_mlfqs_increase_recent_cpu_by_one ();
+    if (ticks % TIMER_FREQ == 0)
+      thread_mlfqs_update_load_avg_and_recent_cpu ();
+    else if (ticks % 4 == 0)
+      thread_mlfqs_update_priority (thread_current ());
+  }
 // --- Lab1: Task 1 ---
 // 这里放在中间感觉比较好,这样如果sleeping thread满足条件,thread_tick时就有可能被唤醒
 // In addition, when modifying some global variable,

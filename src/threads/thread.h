@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <vm/vm.h>
 #include "synch.h"
+#include "fixed_point.h"
 
 extern const char* thread_status_names[];
 
@@ -185,6 +186,8 @@ struct thread
     int priority_before_donate;
     struct list locks;
     struct lock *waiting_lock;
+    int nice;
+    fixed_t recent_cpu;
     // --- Lab1: Task 2 ---
     // --- Lab2: Task 4 ---
     // int exit_code;
@@ -246,6 +249,9 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+void thread_mlfqs_update_priority (struct thread *t);
+void thread_mlfqs_increase_recent_cpu_by_one (void);
+void thread_mlfqs_update_load_avg_and_recent_cpu (void);
 
 bool thread_less (const struct list_elem *, const struct list_elem *, void *);
 #endif /**< threads/thread.h */
