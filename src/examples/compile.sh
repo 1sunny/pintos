@@ -1,0 +1,2 @@
+i386-elf-gcc -m32 -g -msoft-float -O0 -fno-stack-protector -nostdinc -I.. -I../lib -I../lib/user -I.  -c -o c4.o c4.c
+i386-elf-gcc  -Wl,--build-id=none -nostdlib -static -Wl,-T,../lib/user/user.lds c4.o lib/user/entry.o libc.a -o c4
